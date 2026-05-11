@@ -18,6 +18,7 @@ create table if not exists products (
   sku text not null unique,
   barcode text unique,
   name text not null,
+  image_url text,
   category_id bigint references product_categories(id) on delete set null,
   base_unit_id bigint references units(id) on delete set null,
   retail_price numeric(12,2) not null default 0 check (retail_price >= 0),
@@ -29,6 +30,33 @@ create table if not exists products (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table products add column if not exists image_url text;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'product-images',
+  'product-images',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "authenticated read product images" on storage.objects;
+create policy "authenticated read product images" on storage.objects
+for select to authenticated using (bucket_id = 'product-images');
+
+drop policy if exists "authenticated upload product images" on storage.objects;
+create policy "authenticated upload product images" on storage.objects
+for insert to authenticated with check (bucket_id = 'product-images');
+
+drop policy if exists "authenticated update product images" on storage.objects;
+create policy "authenticated update product images" on storage.objects
+for update to authenticated using (bucket_id = 'product-images') with check (bucket_id = 'product-images');
 
 create table if not exists sales (
   id bigint generated always as identity primary key,
@@ -107,8 +135,12 @@ declare
   line_unit_price numeric(12,2);
   line_total numeric(12,2);
   sale_total numeric(12,2) := 0;
+  discount_total numeric(12,2) := greatest(coalesce((payload->>'discount_amount')::numeric, 0), 0);
+  paid_total numeric(12,2) := coalesce((payload->>'paid_amount')::numeric, 0);
   current_stock numeric(12,2);
   method text := coalesce(payload->>'payment_method', 'cash');
+  reference text := nullif(payload->>'reference_no', '');
+  customer text := nullif(payload->>'customer_name', '');
 begin
   if current_user_id is null then
     raise exception 'Authentication required.';
@@ -175,13 +207,24 @@ begin
     );
   end loop;
 
+  if discount_total > sale_total then
+    discount_total := sale_total;
+  end if;
+
   update sales
   set subtotal = sale_total,
-      total_amount = sale_total
+      discount_amount = discount_total,
+      total_amount = sale_total - discount_total
   where id = new_sale_id;
 
-  insert into payments (sale_id, payment_method, amount, created_by)
-  values (new_sale_id, method, sale_total, current_user_id);
+  insert into payments (sale_id, payment_method, amount, reference_no, created_by)
+  values (
+    new_sale_id,
+    method,
+    case when paid_total > 0 then paid_total else sale_total - discount_total end,
+    concat_ws(' / ', reference, customer),
+    current_user_id
+  );
 
   return new_sale_no;
 end;
