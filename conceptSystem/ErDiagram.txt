@@ -1,0 +1,43 @@
+┌─────────────────────────────────────────────────────────────────┐
+│                    CURRENT SYSTEM (UR)                         │
+├─────────────────────────────────────────────────────────────────┤
+
+PRODUCTS & CATALOG
+├─ products (id, sku, barcode, name, cost, retail_price, wholesale_price, 
+│   stock_qty, min_qty, category_id, unit_id, image_url)
+├─ product_categories (id, name) [6 seed]
+├─ units (id, name) [5 seed: pieces, boxes, rolls, bags, drums]
+└─ product_images (image_url, product_id)  📁 Bucket: public, 5MB, auth-only
+
+SALES TRANSACTIONS (POS)
+├─ sales (id, sale_no, total_amount, paid_amount, discount_amount, 
+│   payment_method, paid_at, created_by)
+├─ sale_items (id, sale_id, product_id, qty, unit_price, line_total)
+└─ payments (id, sale_id, method, amount, reference, paid_at)
+
+STOCK CONTROL
+├─ stock_movements (id, product_id, qty_in, qty_out, movement_type,
+│   reference, notes, movement_date, created_by)
+└─ [RPC] complete_pos_sale() - atomic (sale + items + decrement stock + log)
+└─ [RPC] receive_stock() - atomic (increment stock + log movement)
+
+AUDIT & LOGS
+└─ [TRIGGER] updated_at auto-update on all tables
+
+AUTH
+└─ auth.users (email, password, magic_link)
+
+════════════════════════════════════════════════════════════════
+
+MISSING TABLES (TO ADD)
+├─ customers (id, name, phone, email, address, credit_limit, outstanding_balance)
+├─ employees (id, name, email, phone, role, branch_id, salary)
+│  └─ employee_roles (id, name) [roles: POS Operator, Manager, Accountant]
+├─ promotions (id, name, discount_percent, min_purchase, valid_from, valid_to)
+│  └─ promotion_items (promotion_id, product_id)
+├─ discounts (id, name, discount_percent, discount_amount, discount_type)
+├─ branches (id, name, address, phone, manager_id)
+├─ expenses (id, category, amount, notes, branch_id, created_by, created_at)
+│  └─ expense_categories (id, name)
+├─ activity_logs (id, user_id, action, table_name, record_id, changes, timestamp)
+└─ settings (key, value) [system config]

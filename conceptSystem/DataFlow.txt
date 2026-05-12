@@ -1,0 +1,89 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║                         POINT OF SALE (POS)                          ║
+║                      Counter Service Transaction                      ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+      CUSTOMER AT COUNTER
+              │
+              ▼
+┌──────────────────────────────────────────────────────────┐
+│  1. POS Terminal (/pos page)                            │
+│  ├─ Browse products (load from products table)          │
+│  ├─ Add to cart (local state in React)                 │
+│  ├─ Calculate total (retail_price × qty - discount)    │
+│  ├─ Hold bill (save to browser localStorage)           │
+│  ├─ Resume bill (restore from localStorage)            │
+│  └─ Payment (4 methods: cash, card, transfer, credit)  │
+└──────────────────────────────────────────────────────────┘
+              │
+              ▼  (Submit Sale)
+┌──────────────────────────────────────────────────────────┐
+│  2. Server Action (Backend)                             │
+│  ├─ Call RPC: complete_pos_sale()                       │
+│  │  └─ ATOMIC TRANSACTION:                              │
+│  │     1️⃣ Create sale (id, sale_no, total, paid_amt)   │
+│  │     2️⃣ Add sale_items (product_id, qty, price)      │
+│  │     3️⃣ Check stock availability ✓                   │
+│  │     4️⃣ Decrement stock (qty_out)                    │
+│  │     5️⃣ Log movement (stock_movements)               │
+│  │     6️⃣ Record payment (payments table)              │
+│  │     7️⃣ Return sale_no + receipt                     │
+│  └─ On error: ROLLBACK all changes ⚠️                   │
+└──────────────────────────────────────────────────────────┘
+              │
+              ▼  (Receipt + Stock Updated)
+┌──────────────────────────────────────────────────────────┐
+│  3. Receipt & Confirmation                              │
+│  ├─ Display sale_no + items + total                     │
+│  ├─ Show payment confirmation                           │
+│  └─ Print receipt (optional)                            │
+└──────────────────────────────────────────────────────────┘
+
+════════════════════════════════════════════════════════════════════════
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║                    BACKEND STOCK MANAGEMENT                           ║
+║                   (Stock Counting & Inventory)                        ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+      RECEIVING GOODS FROM SUPPLIER
+              │
+              ▼
+┌──────────────────────────────────────────────────────────┐
+│  1. Stock Receive (/stock page)                         │
+│  ├─ Select product                                      │
+│  ├─ Enter qty_in + supplier info                        │
+│  └─ Submit                                              │
+└──────────────────────────────────────────────────────────┘
+              │
+              ▼  (Submit Stock In)
+┌──────────────────────────────────────────────────────────┐
+│  2. Server Action (Backend)                             │
+│  ├─ Call RPC: receive_stock()                           │
+│  │  └─ ATOMIC TRANSACTION:                              │
+│  │     1️⃣ Increment product stock (qty += qty_in)      │
+│  │     2️⃣ Log movement (qty_in, supplier reference)    │
+│  │     3️⃣ Return updated stock                         │
+│  └─ Validation: qty must be positive                    │
+└──────────────────────────────────────────────────────────┘
+              │
+              ▼  (Stock Updated)
+┌──────────────────────────────────────────────────────────┐
+│  3. Stock Status Display                                │
+│  ├─ Current qty (real-time)                             │
+│  ├─ Movement history (30 days)                          │
+│  ├─ Low stock alerts (qty < min_qty) on Dashboard ⚠️   │
+│  └─ Stock trends                                        │
+└──────────────────────────────────────────────────────────┘
+
+════════════════════════════════════════════════════════════════════════
+
+STOCK FLOW SUMMARY:
+
+  Stock In (Backend)         Stock Out (POS)      Stock Status
+  ──────────────────         ───────────────      ────────────
+  receive_stock()            complete_pos_sale()  products.stock_qty
+       ↓                            ↓                    ↓
+  qty += qty_in          qty -= sale_qty        min_qty threshold
+  log movement           log movement           Dashboard alerts
+  Supplier → Stock       Sale → Stock           Real-time tracking

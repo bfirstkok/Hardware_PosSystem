@@ -1,0 +1,65 @@
+DataFlow.txt┌─────────────────────────────────────────────────────────────────────┐
+│                         USER INTERFACE LAYER                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐ │
+│  │  POS Terminal    │  │  Stock Backend   │  │  Dashboard       │ │
+│  │  (/pos page)     │  │  (/stock page)   │  │  (/dashboard)    │ │
+│  │                  │  │                  │  │                  │ │
+│  │ • Shopping cart  │  │ • Receive stock  │  │ • Metrics        │ │
+│  │ • Hold/resume    │  │ • Movement hist  │  │ • Low-stock ⚠️   │ │
+│  │ • Payment (4x)   │  │ • Search products│  │ • Trends         │ │
+│  │ • Receipt        │  │                  │  │                  │ │
+│  └─────────┬────────┘  └────────┬─────────┘  └────────┬─────────┘ │
+│            │                    │                     │           │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ React 19 Client Components + App Shell (TypeScript)         │ │
+│  │ • State management (carts, bills, search)                   │ │
+│  │ • UI components (tables, forms, alerts)                     │ │
+│  │ • Supabase client (browser auth + RLS)                      │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+                 ┌───────────────┴───────────────┐
+                 ▼                               ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│   APPLICATION LOGIC LAYER    │  │  DATA ACCESS LAYER (ORM)     │
+├──────────────────────────────┤  ├──────────────────────────────┤
+│ Next.js 16 Server Components │  │  Supabase SDK (JavaScript)   │
+│ & Server Actions             │  │                              │
+│                              │  │ • Browser client             │
+│ • Authentication (SSR)       │  │ • Row Level Security (RLS)   │
+│ • API routes (if needed)     │  │ • Real-time subscriptions    │
+│ • Business logic validation  │  │ • File storage (public imgs) │
+│ • Authorization checks       │  │                              │
+└──────────┬───────────────────┘  └──────────────┬───────────────┘
+           │                                     │
+           │  Server Actions call RPCs           │
+           │  (complete_pos_sale, receive_stock) │
+           │                                     │
+           └─────────────────┬───────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      DATABASE LAYER (PostgreSQL)                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
+│  │ Products Catalog│  │ Sales & Payments│  │ Stock Control   │   │
+│  │                 │  │                 │  │                 │   │
+│  │ products        │  │ sales           │  │ stock_movements │   │
+│  │ categories      │  │ sale_items      │  │                 │   │
+│  │ units           │  │ payments        │  │ [RPC Functions] │   │
+│  │ images (bucket) │  │                 │  │ • complete_...  │   │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ RLS Policies: Only own rows + specific roles               │  │
+│  │ Atomic Transactions: RPC with SECURITY DEFINER             │  │
+│  │ Triggers: auto updated_at, stock validation                │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+                             ▲
+                             │ (Raw SQL + Migrations)
+                             │
+                   Supabase Cloud (Hosted)
