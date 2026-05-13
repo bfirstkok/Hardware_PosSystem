@@ -19,6 +19,37 @@ type ProductOption = {
   stock_qty: number;
 };
 
+function stockError(message: string) {
+  redirect(`/stock?error=${encodeURIComponent(message)}`);
+}
+
+function positiveNumberField(formData: FormData, key: string, label: string) {
+  const value = Number(formData.get(key));
+  if (!Number.isFinite(value) || value <= 0 || value > 99999999) {
+    stockError(`${label}ไม่ถูกต้อง`);
+  }
+
+  return value;
+}
+
+function positiveIdField(formData: FormData, key: string, label: string) {
+  const id = Number(formData.get(key));
+  if (!Number.isInteger(id) || id <= 0) {
+    stockError(`${label}ไม่ถูกต้อง`);
+  }
+
+  return id;
+}
+
+function noteField(formData: FormData) {
+  const note = formData.get("note")?.toString().trim() ?? "";
+  if (note.length > 500) {
+    stockError("หมายเหตุยาวเกิน 500 ตัวอักษร");
+  }
+
+  return note;
+}
+
 async function receiveStock(formData: FormData) {
   "use server";
 
@@ -29,20 +60,29 @@ async function receiveStock(formData: FormData) {
     redirect("/login");
   }
 
-  await supabase.rpc("receive_stock", {
+  const { error } = await supabase.rpc("receive_stock", {
     payload: {
-      product_id: Number(formData.get("product_id")),
-      qty: Number(formData.get("qty")),
-      note: formData.get("note")?.toString().trim() ?? "",
+      product_id: positiveIdField(formData, "product_id", "สินค้า"),
+      qty: positiveNumberField(formData, "qty", "จำนวนรับเข้า"),
+      note: noteField(formData),
     },
   });
+
+  if (error) {
+    stockError("บันทึกรับสินค้าไม่สำเร็จ");
+  }
 
   revalidatePath("/stock");
   revalidatePath("/products");
   revalidatePath("/dashboard");
 }
 
-export default async function StockPage() {
+export default async function StockPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const notice = await searchParams;
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
@@ -71,6 +111,12 @@ export default async function StockPage() {
       <main className="p-4 lg:p-6">
         <p className="text-sm text-slate-500">ประวัติสินค้าเข้าออกล่าสุด</p>
         <h1 className="mt-1 text-2xl font-semibold">Stock</h1>
+
+        {notice.error ? (
+          <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {notice.error}
+          </div>
+        ) : null}
 
         <form action={receiveStock} className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
