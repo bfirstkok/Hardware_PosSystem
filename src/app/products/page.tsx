@@ -29,6 +29,14 @@ type UnitRow = {
   short_name: string;
 };
 
+const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const imageExtensions: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+const maxImageSize = 5 * 1024 * 1024;
+
 async function requireUser() {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -40,13 +48,121 @@ async function requireUser() {
   return supabase;
 }
 
+function productError(message: string) {
+  redirect(`/products?error=${encodeURIComponent(message)}`);
+}
+
+function textField(formData: FormData, key: string, label: string, maxLength: number) {
+  const value = formData.get(key)?.toString().trim() ?? "";
+
+  if (!value) {
+    productError(`กรุณากรอก${label}`);
+  }
+  if (value.length > maxLength) {
+    productError(`${label}ยาวเกิน ${maxLength} ตัวอักษร`);
+  }
+
+  return value;
+}
+
+function optionalUrlField(formData: FormData, key: string) {
+  const value = formData.get(key)?.toString().trim() ?? "";
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      productError("URL รูปสินค้าต้องเป็น http หรือ https");
+    }
+    if (value.length > 500) {
+      productError("URL รูปสินค้ายาวเกิน 500 ตัวอักษร");
+    }
+    return url.toString();
+  } catch {
+    productError("URL รูปสินค้าไม่ถูกต้อง");
+  }
+}
+
+function optionalIdField(formData: FormData, key: string, label: string) {
+  const value = formData.get(key)?.toString();
+  if (!value) return null;
+
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    productError(`${label}ไม่ถูกต้อง`);
+  }
+
+  return id;
+}
+
+function numberField(formData: FormData, key: string, label: string) {
+  const value = Number(formData.get(key) ?? 0);
+  if (!Number.isFinite(value) || value < 0 || value > 99999999) {
+    productError(`${label}ไม่ถูกต้อง`);
+  }
+
+  return value;
+}
+
+function positiveIdField(formData: FormData, key: string, label: string) {
+  const id = Number(formData.get(key));
+  if (!Number.isInteger(id) || id <= 0) {
+    productError(`${label}ไม่ถูกต้อง`);
+  }
+
+  return id;
+}
+
+function validateImageFile(file: FormDataEntryValue | null) {
+  if (!(file instanceof File) || file.size === 0) return null;
+
+  if (file.size > maxImageSize) {
+    productError("รูปสินค้าต้องมีขนาดไม่เกิน 5MB");
+  }
+  if (!allowedImageTypes.has(file.type)) {
+    productError("รองรับเฉพาะรูป JPG, PNG หรือ WebP");
+  }
+
+  return file;
+}
+
+async function uploadProductImage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sku: string,
+  imageFile: File | null,
+) {
+  if (!imageFile) return { imageUrl: null, warning: "" };
+
+  const extension = imageExtensions[imageFile.type] ?? "jpg";
+  const imagePath = `products/${sku}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from("product-images")
+    .upload(imagePath, imageFile, {
+      contentType: imageFile.type,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    return { imageUrl: null, warning: "อัปโหลดรูปไม่สำเร็จ" };
+  }
+
+  const { data: publicImage } = supabase.storage.from("product-images").getPublicUrl(imagePath);
+  return { imageUrl: publicImage.publicUrl, warning: "" };
+}
+
 async function createProduct(formData: FormData) {
   "use server";
 
   const supabase = await requireUser();
 
-  const categoryId = formData.get("category_id")?.toString();
-  const unitId = formData.get("base_unit_id")?.toString();
+  const categoryId = optionalIdField(formData, "category_id", "หมวด");
+  const unitId = optionalIdField(formData, "base_unit_id", "หน่วย");
+  const name = textField(formData, "name", "ชื่อสินค้า", 160);
+  const retailPrice = numberField(formData, "retail_price", "ราคาปลีก");
+  const wholesalePrice = numberField(formData, "wholesale_price", "ราคาส่ง");
+  const costPrice = numberField(formData, "cost_price", "ต้นทุน");
+  const minStock = numberField(formData, "min_stock", "สต็อกขั้นต่ำ");
+  const stockQty = numberField(formData, "stock_qty", "ยอดตั้งต้น");
   const datePart = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Bangkok",
     year: "numeric",
@@ -65,49 +181,39 @@ async function createProduct(formData: FormData) {
     .maybeSingle();
   const latestSequence = Number(latestProduct?.sku?.slice(skuPrefix.length)) || 0;
   const sku = `${skuPrefix}${String(latestSequence + 1).padStart(4, "0")}`;
-  const imageFile = formData.get("image_file");
-  let imageUrl = formData.get("image_url")?.toString().trim() || null;
-  let imageUploadWarning = "";
+  const imageFile = validateImageFile(formData.get("image_file"));
+  let imageUrl = optionalUrlField(formData, "image_url");
   const barcode = sku;
 
-  if (imageFile instanceof File && imageFile.size > 0) {
-    const extension = imageFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const imagePath = `products/${sku}.${extension}`;
-    const { error: uploadError } = await supabase.storage
-      .from("product-images")
-      .upload(imagePath, imageFile, {
-        contentType: imageFile.type || undefined,
-        upsert: true,
-      });
-
-    if (uploadError) {
-      imageUploadWarning = uploadError.message;
-    } else {
-      const { data: publicImage } = supabase.storage.from("product-images").getPublicUrl(imagePath);
-      imageUrl = publicImage.publicUrl;
-    }
+  const uploadResult = await uploadProductImage(supabase, sku, imageFile);
+  if (uploadResult.imageUrl) {
+    imageUrl = uploadResult.imageUrl;
   }
 
-  await supabase.from("products").insert({
+  const { error: insertError } = await supabase.from("products").insert({
     sku,
     barcode,
-    name: formData.get("name")?.toString().trim(),
+    name,
     image_url: imageUrl,
-    category_id: categoryId ? Number(categoryId) : null,
-    base_unit_id: unitId ? Number(unitId) : null,
-    retail_price: Number(formData.get("retail_price") ?? 0),
-    wholesale_price: Number(formData.get("wholesale_price") ?? 0),
-    cost_price: Number(formData.get("cost_price") ?? 0),
-    min_stock: Number(formData.get("min_stock") ?? 0),
-    stock_qty: Number(formData.get("stock_qty") ?? 0),
+    category_id: categoryId,
+    base_unit_id: unitId,
+    retail_price: retailPrice,
+    wholesale_price: wholesalePrice,
+    cost_price: costPrice,
+    min_stock: minStock,
+    stock_qty: stockQty,
   });
+
+  if (insertError) {
+    productError("บันทึกสินค้าไม่สำเร็จ");
+  }
 
   revalidatePath("/products");
   revalidatePath("/barcodes");
   revalidatePath("/dashboard");
 
-  if (imageUploadWarning) {
-    redirect(`/products?imageUpload=${encodeURIComponent(imageUploadWarning)}`);
+  if (uploadResult.warning) {
+    redirect(`/products?imageUpload=${encodeURIComponent(uploadResult.warning)}`);
   }
 }
 
@@ -115,53 +221,48 @@ async function updateProduct(formData: FormData) {
   "use server";
 
   const supabase = await requireUser();
-  const id = Number(formData.get("id"));
-  const categoryId = formData.get("category_id")?.toString();
-  const unitId = formData.get("base_unit_id")?.toString();
+  const id = positiveIdField(formData, "id", "สินค้า");
+  const categoryId = optionalIdField(formData, "category_id", "หมวด");
+  const unitId = optionalIdField(formData, "base_unit_id", "หน่วย");
+  const name = textField(formData, "name", "ชื่อสินค้า", 160);
+  const retailPrice = numberField(formData, "retail_price", "ราคาปลีก");
+  const wholesalePrice = numberField(formData, "wholesale_price", "ราคาส่ง");
+  const costPrice = numberField(formData, "cost_price", "ต้นทุน");
+  const minStock = numberField(formData, "min_stock", "สต็อกขั้นต่ำ");
   const sku = formData.get("sku")?.toString() || `product-${id}`;
-  const imageFile = formData.get("image_file");
-  let imageUrl = formData.get("image_url")?.toString().trim() || null;
-  let imageUploadWarning = "";
+  const imageFile = validateImageFile(formData.get("image_file"));
+  let imageUrl = optionalUrlField(formData, "image_url");
 
-  if (imageFile instanceof File && imageFile.size > 0) {
-    const extension = imageFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const imagePath = `products/${sku}.${extension}`;
-    const { error: uploadError } = await supabase.storage
-      .from("product-images")
-      .upload(imagePath, imageFile, {
-        contentType: imageFile.type || undefined,
-        upsert: true,
-      });
-
-    if (uploadError) {
-      imageUploadWarning = uploadError.message;
-    } else {
-      const { data: publicImage } = supabase.storage.from("product-images").getPublicUrl(imagePath);
-      imageUrl = publicImage.publicUrl;
-    }
+  const uploadResult = await uploadProductImage(supabase, sku, imageFile);
+  if (uploadResult.imageUrl) {
+    imageUrl = uploadResult.imageUrl;
   }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("products")
     .update({
-      name: formData.get("name")?.toString().trim(),
+      name,
       image_url: imageUrl,
-      category_id: categoryId ? Number(categoryId) : null,
-      base_unit_id: unitId ? Number(unitId) : null,
-      retail_price: Number(formData.get("retail_price") ?? 0),
-      wholesale_price: Number(formData.get("wholesale_price") ?? 0),
-      cost_price: Number(formData.get("cost_price") ?? 0),
-      min_stock: Number(formData.get("min_stock") ?? 0),
+      category_id: categoryId,
+      base_unit_id: unitId,
+      retail_price: retailPrice,
+      wholesale_price: wholesalePrice,
+      cost_price: costPrice,
+      min_stock: minStock,
     })
     .eq("id", id);
+
+  if (updateError) {
+    productError("แก้ไขสินค้าไม่สำเร็จ");
+  }
 
   revalidatePath("/products");
   revalidatePath("/pos");
   revalidatePath("/barcodes");
   revalidatePath("/dashboard");
 
-  if (imageUploadWarning) {
-    redirect(`/products?imageUpload=${encodeURIComponent(imageUploadWarning)}`);
+  if (uploadResult.warning) {
+    redirect(`/products?imageUpload=${encodeURIComponent(uploadResult.warning)}`);
   }
 }
 
@@ -169,9 +270,16 @@ async function deactivateProduct(formData: FormData) {
   "use server";
 
   const supabase = await requireUser();
-  const id = Number(formData.get("id"));
+  const id = positiveIdField(formData, "id", "สินค้า");
 
-  await supabase.from("products").update({ is_active: false }).eq("id", id);
+  const { error: updateError } = await supabase
+    .from("products")
+    .update({ is_active: false })
+    .eq("id", id);
+
+  if (updateError) {
+    productError("ปิดใช้งานสินค้าไม่สำเร็จ");
+  }
 
   revalidatePath("/products");
   revalidatePath("/pos");
@@ -182,7 +290,7 @@ async function deactivateProduct(formData: FormData) {
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ imageUpload?: string }>;
+  searchParams: Promise<{ error?: string; imageUpload?: string }>;
 }) {
   const notice = await searchParams;
   const supabase = await createClient();
@@ -220,6 +328,12 @@ export default async function ProductsPage({
             {products.length.toLocaleString("th-TH")} รายการ
           </div>
         </div>
+
+        {notice.error ? (
+          <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {notice.error}
+          </div>
+        ) : null}
 
         {error ? (
           <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">

@@ -1,500 +1,470 @@
-# Hardware POS System 🏪
+<div align="center">
 
-> **โปรแกรมขายสินค้ากลับแบบ Cloud-Based** สำหรับร้านค้าขายวัสดุก่อสร้าง  
-> พร้อมระบบจัดการคลังสินค้าแบบ Real-time และ Atomic Transactions
+# 🏪 Hardware POS System
 
-**Current Version:** 0.1.0 (Beta) | **Status:** Active Development
+**ระบบจุดขายแบบ Cloud-Based สำหรับร้านค้าขายวัสดุและวัสดุก่อสร้าง**
 
----
+พร้อมระบบจัดการคลังสินค้าแบบ Real-time, Atomic Transactions, และ Role-Based Security
 
-## 📖 สารบัญ
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./package.json)
+[![Node Version](https://img.shields.io/badge/node-18%2B-green.svg)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Status](https://img.shields.io/badge/status-Active%20Development-orange.svg)](#)
 
-- [ภาพรวม](#-ภาพรวม)
-- [ฟีเจอร์](#-ฟีเจอร์)
-- [Tech Stack](#-tech-stack)
-- [Quick Start](#-quick-start)
-- [โครงสร้างไฟล์](#-โครงสร้างไฟล์)
-- [Architecture](#-architecture)
-- [ตั้งค่าและการใช้งาน](#-ตั้งค่าและการใช้งาน)
-- [Code Quality](#-code-quality)
-- [Performance](#-performance)
-- [Troubleshooting](#-troubleshooting)
-- [Roadmap](#-roadmap)
+[🌐 Website](#) • [📖 Documentation](#) • [🐛 Report Bug](#) • [✨ Request Feature](#)
+
+</div>
 
 ---
 
-## 🎯 ภาพรวม
+## 📋 สารบัญ
 
-**Hardware POS** เป็นระบบจุดขายแบบสมบูรณ์ (Point of Sale) สำหรับร้านค้าขายเครื่องมือ และวัสดุก่อสร้าง
+- [📌 ภาพรวม](#-ภาพรวม)
+- [✨ ฟีเจอร์](#-ฟีเจอร์)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [🚀 Quick Start](#-quick-start)
+- [📂 โครงสร้างโปรเจกต์](#-โครงสร้างโปรเจกต์)
+- [🏗️ สถาปัตยกรรม](#️-สถาปัตยกรรม)
+- [⚙️ ตั้งค่า](#️-ตั้งค่า)
+- [📊 Roadmap](#-roadmap)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
-### คุณสมบัติหลัก
-- ✅ **POS Terminal** - Counter Service แบบ Real-time  
-- ✅ **Inventory Management** - ติดตามสินค้า สาขา ลอตอัตโนมัติ  
-- ✅ **Atomic Transactions** - ป้องกันขายเกินสต็อก  
-- ✅ **Comprehensive Audit Trail** - ประวัติการเคลื่อนไหวสินค้าครบถ้วน  
-- ✅ **Role-Based Security** - Row-Level Security และ RLS Policies  
-- ✅ **Thai Localization** - ระบบภาษาไทยเต็ม พร้อมการจัดรูปแบบตัวเลข  
+---
 
-### Target Users
-- **Cashiers** - POS Terminal สำหรับขายสินค้า  
-- **Store Managers** - Dashboard ดูสต็อค ยอดขาย การแจ้งเตือน  
-- **Inventory Staff** - Stock-in, Movement History, ปรับจำนวนมือ  
+## 📌 ภาพรวม
+
+**Hardware POS** คือระบบจุดขายแบบครบถ้วน ออกแบบมาสำหรับร้านค้าขายเครื่องมือและวัสดุก่อสร้าง พร้อมคุณสมบัติขั้นสูงเช่น:
+
+- ✅ **POS Terminal** - บริการขายแบบ Real-time
+- ✅ **Inventory Management** - ติดตามสินค้าและสาขาอัตโนมัติ
+- ✅ **Atomic Transactions** - ป้องกันการขายเกินสต็อก
+- ✅ **Comprehensive Audit Trail** - ประวัติการเคลื่อนไหวสินค้าแบบสมบูรณ์
+- ✅ **Role-Based Security** - Row-Level Security และ RLS Policies
+- ✅ **Thai Localization** - ระบบภาษาไทยเต็ม พร้อมการจัดรูปแบบตัวเลข
+
+### 🎯 ผู้ใช้เป้าหมาย
+
+| บทบาท | หน้าหลัก | คำอธิบาย |
+|------|--------|--------|
+| **Cashiers** 💳 | `/pos` | ขายสินค้า จ่ายเงิน บันทึกบิล |
+| **Store Managers** 📊 | `/dashboard` | ดูสต็อค ยอดขาย การแจ้งเตือน |
+| **Inventory Staff** 📦 | `/stock` | Stock-in, ประวัติเคลื่อนไหว, ปรับจำนวน |
 
 ---
 
 ## ✨ ฟีเจอร์
 
-### ✅ Implemented (Production Ready)
+### ✅ พร้อมใช้งาน (Production Ready)
 
-| Feature | Details | Status |
-|---------|---------|--------|
-| **POS Terminal** (`/pos`) | Shopping cart, hold/resume bills, 4 payment methods, receipt | ✅ Complete |
-| **Product Catalog** (`/products`) | CRUD, auto-SKU, barcode, 3-tier pricing, image upload | ✅ Complete |
-| **Stock Management** (`/stock`) | Manual stock-in, audit trail, movement history (30 days) | ✅ Complete |
-| **Dashboard** (`/dashboard`) | KPIs, low-stock alerts, sales metrics, trends | ✅ Complete |
-| **Authentication** (`/login`) | Email/magic link, SSR session management | ✅ Complete |
-| **RLS Security** | Row-Level Policies on all tables | ✅ Enabled |
-| **Atomic RPC** | `complete_pos_sale()`, `receive_stock()` | ✅ Functional |
+| ฟีเจอร์ | รายละเอียด | สถานะ |
+|--------|----------|-------|
+| **POS Terminal** | Shopping cart, hold/resume bills, 4 payment methods, receipt | ✅ |
+| **Product Catalog** | CRUD, auto-SKU, barcode, 3-tier pricing, image upload | ✅ |
+| **Stock Management** | Manual stock-in, audit trail, movement history | ✅ |
+| **Dashboard** | KPIs, low-stock alerts, sales metrics, trends | ✅ |
+| **Authentication** | Email/magic link, SSR session management | ✅ |
+| **RLS Security** | Row-Level Policies on all tables | ✅ |
+| **Atomic Transactions** | `complete_pos_sale()`, `receive_stock()` RPC | ✅ |
 
-### ⏳ Planned / In Progress
+### 🔄 กำลังพัฒนา & วางแผน
 
-| Feature | Priority | Target |
-|---------|----------|--------|
+| ฟีเจอร์ | ลำดับความสำคัญ | เป้าหมาย |
+|--------|--------------|--------|
 | **Customer Management** | P1 | Credit sales, delivery, customer history |
-| **Employee Roles** | P1 | POS Operator, Manager, Accountant + role-based access |
-| **Promotions & Discounts** | P1 | Flexible discount rules, seasonal campaigns |
+| **Employee Roles** | P1 | POS Operator, Manager, Accountant |
+| **Promotions & Discounts** | P1 | Flexible discount rules, campaigns |
 | **Multi-Branch** | P2 | Multiple outlets, branch reporting |
-| **Advanced Reporting** | P2 | Daily/monthly sales, product performance, COGS |
+| **Advanced Reporting** | P2 | Daily/monthly sales, product performance |
 | **Expense Tracking** | P2 | Operating costs analysis |
-| **Testing Framework** | P1 | Jest + RTL + E2E (Needed) |
+| **Testing Framework** | P1 | Jest + RTL + E2E |
 | **Receipt Printing** | P3 | Thermal printer integration |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer | Technology | Version | Why |
-|-------|-----------|---------|-----|
-| **Frontend** | Next.js App Router | 16.2.6 | SSR + ISR, modern React patterns |
-| **UI Library** | React | 19.2.4 | Latest with hooks & Suspense |
-| **Styling** | Tailwind CSS 4 | 4.x | Utility-first, tree-shakeable |
-| **Icons** | Lucide React | 1.14.0 | Lightweight, tree-shaking support |
-| **Language** | TypeScript | 5.x | Type safety, better DX |
-| **Backend** | Next.js Server Actions | - | RPC calls, form handling |
-| **Database** | Supabase PostgreSQL | Cloud | Fully managed, RLS + Realtime ready |
-| **Auth** | Supabase Auth | Magic Link | Passwordless, email-based |
-| **ORM/Client** | Supabase JS SDK | 2.105.4 | Type-safe, SSR-aware |
-| **Build Tool** | Turbopack | Next.js 16 | Fast, integrated |
-| **Linting** | ESLint | 9.x | Code quality |
+### Frontend
+
+| Tool | Version | ประโยชน์ |
+|------|---------|---------|
+| **Next.js** | 16.2.6 | App Router, SSR, ISR |
+| **React** | 19.2.4 | Modern hooks & Suspense |
+| **TypeScript** | 5.x | Type safety, better DX |
+| **Tailwind CSS** | 4.x | Utility-first styling |
+| **Lucide Icons** | 1.14.0 | Lightweight, tree-shaking |
+
+### Backend & Database
+
+| Tool | Version | ประโยชน์ |
+|------|---------|---------|
+| **Next.js Server Actions** | - | RPC calls, form handling |
+| **Supabase PostgreSQL** | Cloud | Managed DB, RLS ready |
+| **Supabase Auth** | Latest | Passwordless, email-based |
+| **Supabase SDK** | 2.105.4 | Type-safe, SSR-aware |
+
+### Development
+
+| Tool | Version |
+|------|---------|
+| **ESLint** | 9.x |
+| **Turbopack** | Next.js 16 |
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Node.js 18+
-- npm or yarn
-- Supabase account (free at [supabase.com](https://supabase.com))
+### ✋ ข้อกำหนดเบื้องต้น
+
+```bash
+- Node.js 18+ (recommended: 20 LTS)
+- npm or yarn or pnpm
+- Supabase account (free tier at supabase.com)
+```
 
 ### 1️⃣ Clone & Install
+
 ```bash
 git clone https://github.com/bfirstkok/Hardware_PosSystem.git
 cd "POS bfirstkok"
 npm install
 ```
 
-### 2️⃣ Setup Supabase
+### 2️⃣ ตั้งค่า Supabase
+
 ```bash
-# Create a new project at supabase.com
+# สร้าง project ใหม่ที่ supabase.com
 
-# In Supabase Dashboard:
-# 1. Go to Settings → API
-# 2. Copy URL and anon key
+# ใน Supabase Dashboard:
+# 1. ไปที่ Settings → API
+# 2. คัดลอก URL และ anon key
 
-# Create .env.local
+# สร้าง .env.local
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-### 3️⃣ Setup Database
-```bash
-# Option A: Use Supabase Dashboard
-# 1. Open SQL Editor in your Supabase project
-# 2. Paste contents of supabase/schema.sql
-# 3. Run
+### 3️⃣ ตั้งค่าฐานข้อมูล
 
-# Option B: Use Supabase CLI
+```bash
+# ตัวเลือก A: ใช้ Supabase Dashboard
+# 1. เปิด SQL Editor ในโปรเจกต์
+# 2. วาง supabase/schema.sql
+# 3. รัน
+
+# ตัวเลือก B: ใช้ Supabase CLI
 supabase link --project-ref your_project_id
 supabase db push
 ```
 
-### 4️⃣ Run Development Server
+### 4️⃣ รัน Development Server
+
 ```bash
 npm run dev
-# Navigate to http://localhost:3000
+# ไปที่ http://localhost:3000
 ```
 
-### 5️⃣ Login
-- Use any email (no password needed)
-- Check inbox for magic link
+### 5️⃣ เข้าสู่ระบบ
+
+- ใช้อีเมลใด ๆ (ไม่ต้องรหัสผ่าน)
+- ตรวจสอบ inbox สำหรับ magic link
 
 ---
 
-## 📁 โครงสร้างไฟล์
+## 📂 โครงสร้างโปรเจกต์
 
 ```
 Hardware_PosSystem/
 │
 ├── src/
 │   ├── app/                          # Next.js App Router
-│   │   ├── layout.tsx                # Root layout (AppShell wrapper)
-│   │   ├── globals.css               # Tailwind CSS + global styles
-│   │   ├── page.tsx                  # Home/landing page
+│   │   ├── layout.tsx                # Root layout (AppShell)
+│   │   ├── globals.css               # Tailwind CSS
+│   │   ├── page.tsx                  # Home page
 │   │   │
-│   │   ├── login/page.tsx            # 🔑 Authentication (magic link)
-│   │   ├── dashboard/page.tsx        # 📊 KPIs + low-stock alerts
-│   │   ├── pos/page.tsx              # 🛒 POS Terminal (main sales)
-│   │   ├── products/page.tsx         # 📦 Product CRUD + images
-│   │   ├── stock/page.tsx            # 📥 Stock receive + history
+│   │   ├── login/page.tsx            # 🔑 Authentication
+│   │   ├── dashboard/page.tsx        # 📊 Dashboard & KPIs
+│   │   ├── pos/page.tsx              # 🛒 POS Terminal
+│   │   ├── products/page.tsx         # 📦 Product Management
+│   │   ├── stock/page.tsx            # 📥 Stock Management
 │   │   │
-│   │   ├── barcodes/page.tsx         # 🏷️ Barcode printing (stub)
-│   │   ├── customers/page.tsx        # 👥 Customer CRM (stub)
-│   │   ├── employees/page.tsx        # 👨‍💼 Staff management (stub)
-│   │   ├── suppliers/page.tsx        # 🏢 Supplier management (stub)
-│   │   ├── promotions/page.tsx       # 🎯 Promotions (stub)
-│   │   ├── reports/page.tsx          # 📈 Advanced reports (stub)
-│   │   └── [18+ more stubs]/         # Future modules
+│   │   ├── barcodes/page.tsx         # 🏷️ Barcode Printing
+│   │   ├── customers/page.tsx        # 👥 Customer CRM
+│   │   ├── employees/page.tsx        # 👨‍💼 Staff Management
+│   │   ├── suppliers/page.tsx        # 🏢 Supplier Management
+│   │   ├── promotions/page.tsx       # 🎯 Promotions
+│   │   ├── reports/page.tsx          # 📈 Reports
+│   │   └── [more modules]/           # Future features
 │   │
 │   ├── components/
-│   │   ├── app-shell.tsx             # Navigation sidebar + layout wrapper
-│   │   └── module-page.tsx           # Template for stub pages
+│   │   ├── app-shell.tsx             # Navigation sidebar
+│   │   └── module-page.tsx           # Page template
 │   │
 │   └── lib/
 │       └── supabase/
-│           ├── client.ts             # Browser client (RLS, auth)
-│           └── server.ts             # Server-side client (SSR sessions)
+│           ├── client.ts             # Browser client
+│           └── server.ts             # Server client
 │
 ├── supabase/
-│   ├── schema.sql                    # Complete database schema
+│   ├── schema.sql                    # Database schema
 │   └── migrations/
 │       └── 20260512_product_images.sql
 │
-├── conceptSystem/
-│   └── ErDiagram.txt                 # ER Diagram documentation
-│
 ├── public/                           # Static assets
+├── .env.local                        # Environment variables
 ├── tsconfig.json                     # TypeScript config
-├── tailwind.config.ts                # Tailwind configuration
-├── next.config.ts                    # Next.js config (Turbopack)
-├── eslint.config.mjs                 # ESLint rules
+├── tailwind.config.ts                # Tailwind config
+├── next.config.ts                    # Next.js config
 └── package.json                      # Dependencies
 ```
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ สถาปัตยกรรม
 
 ### System Layers
+
 ```
 ┌─────────────────────────────────────────┐
-│   Presentation Layer (React 19)         │
-│  Pages, Components, Client State        │
+│   Presentation (React 19)               │
+│   Pages, Components, Client State       │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│   Application Layer (Next.js 16)        │
-│  Server Actions, Form Handling, SSR     │
+│   Application (Next.js 16)              │
+│   Server Actions, Forms, SSR            │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│   API Layer (Supabase RPCs)             │
-│  complete_pos_sale()                    │
-│  receive_stock()                        │
-│  SECURITY DEFINER + Atomic Transactions │
+│   API Layer (Supabase RPC)              │
+│   complete_pos_sale()                   │
+│   receive_stock()                       │
+│   Atomic Transactions + Security        │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│   Database Layer (PostgreSQL)           │
-│  Supabase Cloud (Managed)               │
-│  Row-Level Security Policies            │
-│  Foreign Keys + Constraints             │
+│   Database (PostgreSQL)                 │
+│   Supabase Cloud                        │
+│   RLS, Constraints, Foreign Keys        │
 └─────────────────────────────────────────┘
 ```
 
 ### Data Flow: POS Sale
+
 ```
 Customer at Counter
   ↓
-1. Browse products (load from DB)
+1. Browse products
   ↓
-2. Add to cart (React state)
+2. Add to cart
   ↓
-3. Select payment method
+3. Select payment
   ↓
-4. Submit → Server Action
+4. Submit
   ↓
 5. Call RPC: complete_pos_sale()
   ↓
 6. ATOMIC TRANSACTION:
-   • Create sale record
-   • Add line items
-   • Validate stock ✓
+   • Create sale
+   • Validate stock
    • Decrement stock
-   • Log movement
    • Record payment
+   • Log activity
   ↓
-7. On error: ROLLBACK all
+7. On error: ROLLBACK
   ↓
-8. Return sale_no → Receipt
+8. Return receipt
 ```
 
 ---
 
-## 🗄️ Database Schema Overview
+## 🗄️ Database Schema
 
 ### Core Tables
 
-**Products & Catalog:**
-```sql
-products (id, sku, barcode, name, prices[3], stock_qty, min_qty, category_id, unit_id)
-product_categories (id, name) -- 6 seeded: construction, electrical, plumbing, etc.
-units (id, name, short_name) -- 5 seeded: pieces, boxes, rolls, bags, drums
-```
-
-**Sales & Payments:**
-```sql
-sales (id, sale_no, total, discount, payment_method, created_by, created_at)
-sale_items (id, sale_id FK, product_id FK, qty, unit_price, line_total)
-payments (id, sale_id FK, amount, method, reference_no, created_by)
-```
-
-**Stock & Audit:**
-```sql
-stock_movements (id, product_id FK, movement_type, qty_in, qty_out, ref_type, created_by)
--- Every sale/receive creates a movement record
-```
+| ตาราง | วัตถุประสงค์ |
+|------|----------|
+| **products** | Product catalog (SKU, prices, stock) |
+| **sales** | Sales header (date, total, payment method) |
+| **sale_items** | Sales line items |
+| **stock_movements** | Audit trail (history) |
+| **product_categories** | Product groups (6 types) |
+| **units** | Units of measurement (pieces, boxes, etc.) |
 
 ### Key Constraints
-- ✅ Foreign key cascades (sales → items → products)
-- ✅ RLS policies on all tables (auth-based access)
-- ✅ Check constraints (prices >= 0, qty > 0)
+
+- ✅ Foreign key cascades
+- ✅ RLS policies (data isolation)
+- ✅ Check constraints (prices >= 0)
 - ✅ Unique constraints (SKU, barcode, sale_no)
-- ⚠️ **MISSING:** `CHECK (stock_qty >= 0)` -- [See Code Quality](#-code-quality)
 
 ---
 
-## 🔧 ตั้งค่าและการใช้งาน
+## ⚙️ ตั้งค่า
 
-### Development Commands
+### คำสั่งพัฒนา
+
 ```bash
-# Start dev server with hot reload
+# Start dev server
 npm run dev
 
-# Build for production
+# Build production
 npm run build
 
-# Run production server
+# Run production
 npm start
 
 # Check code quality
 npm run lint
 
-# Fix linting issues
+# Fix linting
 npx eslint --fix src/
 ```
 
 ### Environment Variables
+
 ```bash
-# .env.local (required for local development)
+# .env.local
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
-```
-
-### Database Migrations
-```bash
-# Pull current schema from cloud
-supabase db pull
-
-# Push local schema to cloud
-supabase db push
-
-# Create new migration
-supabase migration new migration_name
-```
-
-### Testing (TODO: Setup Required)
-```bash
-# No testing framework installed yet
-# See Performance section for testing plan
-npm install --save-dev jest @testing-library/react ts-jest
-npm test
-```
-
----
-
-## 📊 Code Quality
-
-### Current State (Code Review Findings)
-
-| Aspect | Status | Issues |
-|--------|--------|--------|
-| **Correctness** | B+ | Missing input validation, no negative stock guard |
-| **Readability** | A- | Clean, but needs more comments |
-| **Architecture** | B | Good patterns, needs API layer abstraction |
-| **Security** | C | 🔴 CRITICAL: RLS policies too permissive |
-| **Performance** | B | Good baseline, needs pagination + indexes |
-
-### Critical Issues (Must Fix)
-🔴 **Security:**
-- RLS policies use `using (true)` → any logged-in user sees ALL rows
-- **Fix:** Change to `using (created_by = auth.uid())`
-- No input validation on Server Actions → SQL injection risk
-- **Fix:** Add Zod schema validation
-
-🔴 **Data Integrity:**
-- Missing `CHECK (stock_qty >= 0)` constraint
-- **Fix:** Add constraint to products table
-
-⚠️ **Missing:**
-- No automated testing (0% coverage)
-- No role-based access control (RBAC)
-- No activity audit logging
-
-### Recommended Fixes (Priority Order)
-1. Add RLS policies for data isolation (CRITICAL)
-2. Add `stock_qty >= 0` constraint (CRITICAL)
-3. Add Zod schema validation on inputs (CRITICAL)
-4. Setup Jest testing framework (IMPORTANT)
-5. Extract cart logic to `useCart()` hook (IMPORTANT)
-6. Add database indexes (IMPORTANT)
-
----
-
-## ⚡ Performance
-
-### Current Bottlenecks (Analysis Results)
-
-| Issue | Impact | Fix |
-|-------|--------|-----|
-| **Missing DB Indexes** | Dashboard 70% slower | Add 5 indexes (2 hrs) |
-| **N+1 Queries in Checkout** | 2-3x overhead | Batch RPC updates (6 hrs) |
-| **Full Product Refresh** | 60-80KB waste per sale | Patch locally only (15 min) |
-| **No Pagination** | Doesn't scale > 1000 SKUs | Add limit/offset (2 hrs) |
-| **No Caching** | Categories fetched every page | Cache in localStorage (1 hr) |
-
-### Performance Targets
-```
-Dashboard LCP:      < 2.5s (current: ~200-300ms estimated)
-Checkout time:      < 500ms (current: ~1-2s estimated)
-API response time:  < 200ms (current: ~150-300ms estimated)
-POS bundle size:    < 200KB gzipped (current: ~180KB ✅)
 ```
 
 ---
 
 ## 🧪 Testing
 
-### Current Status: ❌ NO TESTS
-- No Jest setup
-- No testing framework installed
+### Current Status: ❌ No Tests Yet
+
 - 0% code coverage
+- No testing framework installed
 
-### Testing Plan (TDD)
-```
-Tests Needed (Priority):
-P0: RPC Functions (complete_pos_sale, receive_stock)
-P1: Data Integrity (Stock constraints, RLS policies)
-P2: Component Logic (Cart, forms, validations)
-P3: E2E Flows (Complete checkout, stock receive)
+### Testing Plan
 
-Setup Required:
-npm install jest @testing-library/react ts-jest
-Create jest.config.js
-Create tests/ directory structure
+```bash
+# Install testing tools
+npm install --save-dev jest @testing-library/react ts-jest
+
+# Run tests
+npm test
 ```
+
+**ต้องมี Tests สำหรับ:**
+- RPC Functions
+- Stock constraints
+- POS checkout flow
+- Component logic
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Issue: Red Squiggles in schema.sql
-**Cause:** VS Code SQL linter set to T-SQL (SQL Server) instead of PostgreSQL  
-**Fix:** Create `.vscode/settings.json`:
-```json
-{
-  "sql.dialect": "postgres",
-  "sql.linter": false
-}
-```
+### ❌ Cannot login
 
-### Issue: Cannot login (magic link not received)
-**Cause:** Supabase email not configured  
-**Fix:**
-1. Go to Supabase → Authentication → Email Templates
-2. Check "Enable custom SMTP" or use Supabase default
+**Solution:**
+1. Go to Supabase → Authentication
+2. Check email configuration
+3. Verify .env.local is correct
 
-### Issue: Dashboard loads slowly
-**Cause:** Missing database indexes  
-**Fix:** Run the index creation SQL from Roadmap section
+### ❌ Port 3000 in use
 
-### Issue: Port 3000 already in use
-**Fix:**
 ```bash
 # Windows
 netstat -ano | findstr :3000
 taskkill /PID <PID> /F
 
-# macOS/Linux
-lsof -i :3000
-kill -9 <PID>
-
 # Or use different port
 npm run dev -- -p 3001
 ```
 
-### Issue: Supabase connection timeout
-**Fix:**
+### ❌ Supabase connection timeout
+
 1. Check internet connection
-2. Verify `.env.local` values are correct
+2. Verify .env.local values
 3. Check Supabase project status
-4. Try: `npx supabase status`
+
+### ❌ Red squiggles in schema.sql
+
+Create `.vscode/settings.json`:
+```json
+{
+  "sql.dialect": "postgres"
+}
+```
 
 ---
 
 ## 🗺️ Roadmap
 
-### Phase 1: Security & Stability (May 2026) 🔴
-- [ ] Fix RLS policies (data isolation)
-- [ ] Add input validation (Zod)
-- [ ] Add stock_qty >= 0 constraint
-- [ ] Setup testing framework
-- [ ] Add activity audit logging
+### Phase 1: Security (May 2026) 🔴
 
-### Phase 2: Core Features (June 2026) 🟡
-- [ ] Customer management + credit sales
-- [ ] Employee roles + role-based access
-- [ ] Promotions & discount rules
-- [ ] Database indexes + query optimization
-- [ ] Pagination on product list
+- [ ] Fix RLS policies
+- [ ] Add input validation
+- [ ] Add stock constraints
+- [ ] Setup testing
+- [ ] Add activity logging
 
-### Phase 3: Backend Features (July 2026) 🟡
+### Phase 2: Features (June 2026) 🟡
+
+- [ ] Customer management
+- [ ] Employee roles
+- [ ] Promotions & discounts
+- [ ] Database optimization
+- [ ] Pagination
+
+### Phase 3: Backend (July 2026) 🟡
+
 - [ ] Multi-branch support
-- [ ] Advanced reporting (daily/monthly)
+- [ ] Advanced reporting
 - [ ] Expense tracking
-- [ ] Stock adjustment & FIFO expiry
+- [ ] Stock adjustment
+- [ ] Expiry management
 
 ### Phase 4: Polish (August 2026) 🟢
-- [ ] Receipt thermal printer integration
-- [ ] Barcode scanner hardware integration
-- [ ] Mobile app (React Native)
-- [ ] Performance monitoring (web-vitals)
-- [ ] Load testing
+
+- [ ] Receipt printing
+- [ ] Barcode scanning
+- [ ] Mobile app
+- [ ] Performance monitoring
+
+---
+
+## 💡 Tips & Best Practices
+
+### Development
+
+```bash
+# Keep dev server running
+npm run dev
+
+# Watch for changes
+# Auto-reload is built into Next.js
+
+# Check types
+npx tsc --noEmit
+```
+
+### Database
+
+```bash
+# Always test in development first
+# Use Supabase local development mode
+
+# Backup before major migrations
+supabase db pull
+```
+
+### Deployment
+
+- **Vercel:** Recommended (integrated with Next.js)
+- **Docker:** Self-hosted option
+- **AWS:** EC2 + RDS alternative
 
 ---
 
 ## 🤝 Contributing
 
-### Setup for Contributors
+### For Contributors
+
 ```bash
 git clone https://github.com/bfirstkok/Hardware_PosSystem.git
 cd "POS bfirstkok"
@@ -502,74 +472,85 @@ npm install
 npm run dev
 ```
 
-### Code Guidelines
-- Follow ESLint rules: `npm run lint`
+### Code Standards
+
+- Follow ESLint: `npm run lint`
 - Use TypeScript (strict mode)
-- Write tests for new features (TDD)
-- Keep components focused (single responsibility)
-- Name variables descriptively
+- Write tests (TDD approach)
+- Single responsibility principle
+- Descriptive naming
 
 ### Submitting Changes
-1. Create feature branch: `git checkout -b feature/your-feature`
-2. Make changes + run tests
-3. Commit with descriptive message
-4. Push and create Pull Request
+
+1. Create branch: `git checkout -b feature/name`
+2. Make changes + test
+3. Commit: `git commit -m "feat: description"`
+4. Push and create PR
 
 ---
 
-## 📋 Maintenance
+## 📞 Support & Resources
 
-### Database Backups
-- **Supabase:** Automatic daily backups (included in Pro plan)
-- **Manual:** Use Supabase Backup feature in Dashboard
+### Official Docs
 
-### Monitoring
-- Check Supabase logs: Dashboard → Logs
-- Monitor query performance: Supabase Dashboard → Performance
-- Watch for errors in browser console
-
-### Deployment
-- **Vercel:** Recommended for Next.js (free tier available)
-- **Docker:** Self-hosted with Supabase
-- **AWS:** EC2 + RDS PostgreSQL alternative
-
----
-
-## 📞 Support
-
-### Resources
-- 📚 [Next.js Documentation](https://nextjs.org/docs)
-- 📚 [Supabase Documentation](https://supabase.com/docs)
-- 📚 [React Documentation](https://react.dev)
-- 📚 [Tailwind CSS Documentation](https://tailwindcss.com/docs)
+- 📚 [Next.js Docs](https://nextjs.org/docs)
+- 📚 [Supabase Docs](https://supabase.com/docs)
+- 📚 [React Docs](https://react.dev)
+- 📚 [Tailwind Docs](https://tailwindcss.com/docs)
+- 📚 [TypeScript Docs](https://www.typescriptlang.org/docs)
 
 ### Getting Help
-- Check [Troubleshooting](#-troubleshooting) section
-- Search GitHub issues
-- Review code comments and inline documentation
-- Check Supabase project logs
+
+1. Check [Troubleshooting](#-troubleshooting)
+2. Search GitHub issues
+3. Review code comments
+4. Check Supabase logs
 
 ---
 
-## 📄 License
-
-[MIT License](LICENSE) - 2026
-
----
-
-## 📈 Project Stats
+## 📊 Project Stats
 
 | Metric | Value |
 |--------|-------|
 | **Language** | TypeScript |
 | **Framework** | Next.js 16 |
 | **Database** | PostgreSQL (Supabase) |
-| **Tables** | 7 core + 3 audit |
-| **RPC Functions** | 2 (atomic) |
-| **Pages (Implemented)** | 5 |
-| **Pages (Stubbed)** | 18 |
-| **Test Coverage** | 0% (TODO) |
-| **Code Quality** | B (See Code Quality section) |
+| **Core Tables** | 7 |
+| **RPC Functions** | 2 |
+| **Implemented Pages** | 5 |
+| **Stubbed Pages** | 18 |
+| **Test Coverage** | 0% |
+| **Code Quality** | B |
+
+---
+
+## 📜 License
+
+[MIT License](LICENSE) © 2026 Hardware POS System
+
+---
+
+## ✨ Acknowledgments
+
+Built with ❤️ for small businesses
+
+**Tech used:**
+- [Next.js](https://nextjs.org/) - React framework
+- [Supabase](https://supabase.com/) - Backend & Database
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
+- [React](https://react.dev/) - UI library
+- [TypeScript](https://www.typescriptlang.org/) - Type safety
+
+---
+
+<div align="center">
+
+**Made with ❤️ for POSRKT - Thailand Hardware POS System**
+
+[⬆ Back to top](#-hardware-pos-system)
+
+</div>
+
 
 ---
 

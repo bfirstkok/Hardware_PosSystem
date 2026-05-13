@@ -25,7 +25,7 @@ create table if not exists products (
   wholesale_price numeric(12,2) not null default 0 check (wholesale_price >= 0),
   cost_price numeric(12,2) not null default 0 check (cost_price >= 0),
   min_stock numeric(12,2) not null default 0 check (min_stock >= 0),
-  stock_qty numeric(12,2) not null default 0,
+  stock_qty numeric(12,2) not null default 0 check (stock_qty >= 0),
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -137,6 +137,7 @@ declare
   sale_total numeric(12,2) := 0;
   discount_total numeric(12,2) := greatest(coalesce((payload->>'discount_amount')::numeric, 0), 0);
   paid_total numeric(12,2) := coalesce((payload->>'paid_amount')::numeric, 0);
+  due_total numeric(12,2);
   current_stock numeric(12,2);
   method text := coalesce(payload->>'payment_method', 'cash');
   reference text := nullif(payload->>'reference_no', '');
@@ -148,6 +149,14 @@ begin
 
   if jsonb_typeof(payload->'items') <> 'array' or jsonb_array_length(payload->'items') = 0 then
     raise exception 'Sale items are required.';
+  end if;
+
+  if method not in ('cash', 'transfer', 'qr', 'card') then
+    raise exception 'Invalid payment method.';
+  end if;
+
+  if discount_total < 0 or paid_total < 0 then
+    raise exception 'Invalid payment amount.';
   end if;
 
   new_sale_no := 'SALE-' || to_char(now(), 'YYYYMMDDHH24MISSMS');
@@ -164,6 +173,10 @@ begin
 
     if line_qty <= 0 then
       raise exception 'Invalid quantity for product %.', line_product_id;
+    end if;
+
+    if line_unit_price < 0 then
+      raise exception 'Invalid unit price for product %.', line_product_id;
     end if;
 
     select stock_qty into current_stock
@@ -211,17 +224,26 @@ begin
     discount_total := sale_total;
   end if;
 
+  due_total := sale_total - discount_total;
+  if method = 'cash' and paid_total < due_total then
+    raise exception 'Paid amount is less than total amount.';
+  end if;
+
+  if paid_total > 0 and paid_total < due_total then
+    raise exception 'Paid amount is less than total amount.';
+  end if;
+
   update sales
   set subtotal = sale_total,
       discount_amount = discount_total,
-      total_amount = sale_total - discount_total
+      total_amount = due_total
   where id = new_sale_id;
 
   insert into payments (sale_id, payment_method, amount, reference_no, created_by)
   values (
     new_sale_id,
     method,
-    case when paid_total > 0 then paid_total else sale_total - discount_total end,
+    case when paid_total > 0 then paid_total else due_total end,
     concat_ws(' / ', reference, customer),
     current_user_id
   );
