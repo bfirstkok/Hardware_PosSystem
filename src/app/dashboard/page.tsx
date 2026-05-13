@@ -11,8 +11,8 @@ export default async function DashboardPage() {
   }
 
   const [{ count: productCount }, { count: saleCount }, { data: lowStock }] = await Promise.all([
-    supabase.from("products").select("*", { count: "exact", head: true }),
-    supabase.from("sales").select("*", { count: "exact", head: true }),
+    supabase.from("products").select("id", { count: "exact", head: true }),
+    supabase.from("sales").select("id", { count: "exact", head: true }),
     supabase
       .from("products")
       .select("id, sku, name, stock_qty, min_stock")

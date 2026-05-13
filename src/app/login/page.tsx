@@ -26,7 +26,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (signInError) {
-      setError(signInError.message);
+      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
       return;
     }
 
