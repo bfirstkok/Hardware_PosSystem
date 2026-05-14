@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Banknote,
@@ -29,6 +29,7 @@ import {
   type PosSalePayload,
   updatePendingSale,
 } from "@/lib/offline-sales";
+import { filterProducts, MAX_VISIBLE_PRODUCTS } from "@/lib/pos-products.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 type Product = {
@@ -97,6 +98,8 @@ function productInitials(name: string) {
 
 export default function PosClient() {
   const searchRef = useRef<HTMLInputElement>(null);
+  const checkoutIdempotencyKeyRef = useRef<string | null>(null);
+  const syncInProgressRef = useRef(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
@@ -112,6 +115,7 @@ export default function PosClient() {
   const [message, setMessage] = useState("");
   const [isOnline, setIsOnline] = useState(true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     async function loadProducts() {
@@ -141,21 +145,23 @@ export default function PosClient() {
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "th"));
   }, [products]);
 
-  const visibleProducts = useMemo(() => {
-    const value = query.trim().toLowerCase();
+  const visibleProducts = useMemo(
+    () =>
+      filterProducts(products, {
+        activeCategory,
+        query: deferredQuery,
+      }) as Product[],
+    [activeCategory, deferredQuery, products],
+  );
 
-    return products.filter((product) => {
-      const inCategory =
-        activeCategory === "all" || product.product_categories?.name === activeCategory;
-      const matchesQuery =
-        !value ||
-        product.name.toLowerCase().includes(value) ||
-        product.sku.toLowerCase().includes(value) ||
-        product.barcode?.toLowerCase().includes(value);
-
-      return inCategory && matchesQuery;
-    });
-  }, [activeCategory, products, query]);
+  const productLookup = useMemo(() => {
+    const lookup = new Map<string, Product>();
+    for (const product of products) {
+      lookup.set(product.sku.toLowerCase(), product);
+      if (product.barcode) lookup.set(product.barcode.toLowerCase(), product);
+    }
+    return lookup;
+  }, [products]);
 
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
@@ -226,9 +232,7 @@ export default function PosClient() {
     const value = query.trim().toLowerCase();
     if (!value) return;
 
-    const exact = products.find(
-      (product) => product.sku.toLowerCase() === value || product.barcode?.toLowerCase() === value,
-    );
+    const exact = productLookup.get(value);
 
     if (exact) {
       addToCart(exact);
@@ -281,12 +285,16 @@ export default function PosClient() {
     };
   }
 
-  const submitSaleOnline = useCallback(async (payload: PosSalePayload, pendingSale?: PendingSale) => {
+  const submitSaleOnline = useCallback(async (
+    payload: PosSalePayload,
+    pendingSale?: PendingSale,
+    idempotencyKey?: string,
+  ) => {
     const supabase = createClient();
     const { data, error } = await supabase.rpc("complete_pos_sale", {
       payload: {
         ...payload,
-        idempotency_key: pendingSale?.offline_sale_id ?? crypto.randomUUID(),
+        idempotency_key: pendingSale?.offline_sale_id ?? idempotencyKey ?? crypto.randomUUID(),
         client_invoice_no: pendingSale?.client_invoice_no ?? null,
         offline_created_at: pendingSale?.offline_created_at ?? null,
       },
@@ -297,37 +305,43 @@ export default function PosClient() {
   }, []);
 
   const syncPendingSales = useCallback(async () => {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine || syncInProgressRef.current) return;
 
-    const pendingSales = await pendingSalesForSync();
-    if (!pendingSales.length) {
-      setPendingSyncCount(0);
-      return;
-    }
+    syncInProgressRef.current = true;
 
-    for (const sale of pendingSales) {
-      await updatePendingSale(sale.offline_sale_id, {
-        sync_status: "syncing",
-        sync_attempts: sale.sync_attempts + 1,
-      });
-
-      try {
-        const saleNo = await submitSaleOnline(sale.payload, sale);
-        await updatePendingSale(sale.offline_sale_id, {
-          sync_status: "synced",
-          server_sale_no: saleNo,
-          synced_at: new Date().toISOString(),
-          last_sync_error: undefined,
-        });
-      } catch (error) {
-        await updatePendingSale(sale.offline_sale_id, {
-          sync_status: "failed",
-          last_sync_error: error instanceof Error ? error.message : String(error),
-        });
+    try {
+      const pendingSales = await pendingSalesForSync();
+      if (!pendingSales.length) {
+        setPendingSyncCount(0);
+        return;
       }
-    }
 
-    setPendingSyncCount(await countPendingSales());
+      for (const sale of pendingSales) {
+        await updatePendingSale(sale.offline_sale_id, {
+          sync_status: "syncing",
+          sync_attempts: sale.sync_attempts + 1,
+        });
+
+        try {
+          const saleNo = await submitSaleOnline(sale.payload, sale);
+          await updatePendingSale(sale.offline_sale_id, {
+            sync_status: "synced",
+            server_sale_no: saleNo,
+            synced_at: new Date().toISOString(),
+            last_sync_error: undefined,
+          });
+        } catch (error) {
+          await updatePendingSale(sale.offline_sale_id, {
+            sync_status: "failed",
+            last_sync_error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      setPendingSyncCount(await countPendingSales());
+    } finally {
+      syncInProgressRef.current = false;
+    }
   }, [submitSaleOnline]);
 
   useEffect(() => {
@@ -400,6 +414,7 @@ export default function PosClient() {
 
     if (!navigator.onLine) {
       const pendingSale = await addPendingSale(payload);
+      checkoutIdempotencyKeyRef.current = null;
       setLoading(false);
       setPendingSyncCount(await countPendingSales());
       clearBill();
@@ -409,7 +424,9 @@ export default function PosClient() {
     }
 
     try {
-      const saleNo = await submitSaleOnline(payload);
+      checkoutIdempotencyKeyRef.current ??= crypto.randomUUID();
+      const saleNo = await submitSaleOnline(payload, undefined, checkoutIdempotencyKeyRef.current);
+      checkoutIdempotencyKeyRef.current = null;
       setLoading(false);
       clearBill();
       applySoldStock(soldItems);
@@ -538,6 +555,12 @@ export default function PosClient() {
               ))}
             </div>
           </div>
+
+          {visibleProducts.length >= MAX_VISIBLE_PRODUCTS ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              แสดงสูงสุด {MAX_VISIBLE_PRODUCTS.toLocaleString("th-TH")} รายการ ปรับคำค้นหาเพื่อเจอสินค้าเร็วขึ้น
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {visibleProducts.map((product) => {
