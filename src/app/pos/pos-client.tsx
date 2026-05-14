@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Banknote,
@@ -21,6 +21,15 @@ import {
   UserRound,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  addPendingSale,
+  countPendingSales,
+  pendingSalesForSync,
+  type PendingSale,
+  type PosSalePayload,
+  updatePendingSale,
+} from "@/lib/offline-sales";
+import { filterProducts, MAX_VISIBLE_PRODUCTS } from "@/lib/pos-products.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 type Product = {
@@ -89,6 +98,8 @@ function productInitials(name: string) {
 
 export default function PosClient() {
   const searchRef = useRef<HTMLInputElement>(null);
+  const checkoutIdempotencyKeyRef = useRef<string | null>(null);
+  const syncInProgressRef = useRef(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
@@ -102,6 +113,9 @@ export default function PosClient() {
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     async function loadProducts() {
@@ -131,21 +145,23 @@ export default function PosClient() {
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "th"));
   }, [products]);
 
-  const visibleProducts = useMemo(() => {
-    const value = query.trim().toLowerCase();
+  const visibleProducts = useMemo(
+    () =>
+      filterProducts(products, {
+        activeCategory,
+        query: deferredQuery,
+      }) as Product[],
+    [activeCategory, deferredQuery, products],
+  );
 
-    return products.filter((product) => {
-      const inCategory =
-        activeCategory === "all" || product.product_categories?.name === activeCategory;
-      const matchesQuery =
-        !value ||
-        product.name.toLowerCase().includes(value) ||
-        product.sku.toLowerCase().includes(value) ||
-        product.barcode?.toLowerCase().includes(value);
-
-      return inCategory && matchesQuery;
-    });
-  }, [activeCategory, products, query]);
+  const productLookup = useMemo(() => {
+    const lookup = new Map<string, Product>();
+    for (const product of products) {
+      lookup.set(product.sku.toLowerCase(), product);
+      if (product.barcode) lookup.set(product.barcode.toLowerCase(), product);
+    }
+    return lookup;
+  }, [products]);
 
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
@@ -216,9 +232,7 @@ export default function PosClient() {
     const value = query.trim().toLowerCase();
     if (!value) return;
 
-    const exact = products.find(
-      (product) => product.sku.toLowerCase() === value || product.barcode?.toLowerCase() === value,
-    );
+    const exact = productLookup.get(value);
 
     if (exact) {
       addToCart(exact);
@@ -256,6 +270,110 @@ export default function PosClient() {
     searchRef.current?.focus();
   }
 
+  function salePayload(): PosSalePayload {
+    return {
+      customer_name: customerName.trim() || null,
+      reference_no: referenceNo.trim() || null,
+      payment_method: paymentMethod,
+      discount_amount: discountAmount,
+      paid_amount: paymentMethod === "cash" ? cashReceived : payableTotal,
+      items: cart.map((item) => ({
+        product_id: item.id,
+        qty: item.qty,
+        unit_price: item.unitPrice,
+      })),
+    };
+  }
+
+  const submitSaleOnline = useCallback(async (
+    payload: PosSalePayload,
+    pendingSale?: PendingSale,
+    idempotencyKey?: string,
+  ) => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("complete_pos_sale", {
+      payload: {
+        ...payload,
+        idempotency_key: pendingSale?.offline_sale_id ?? idempotencyKey ?? crypto.randomUUID(),
+        client_invoice_no: pendingSale?.client_invoice_no ?? null,
+        offline_created_at: pendingSale?.offline_created_at ?? null,
+      },
+    });
+
+    if (error) throw error;
+    return data as string;
+  }, []);
+
+  const syncPendingSales = useCallback(async () => {
+    if (!navigator.onLine || syncInProgressRef.current) return;
+
+    syncInProgressRef.current = true;
+
+    try {
+      const pendingSales = await pendingSalesForSync();
+      if (!pendingSales.length) {
+        setPendingSyncCount(0);
+        return;
+      }
+
+      for (const sale of pendingSales) {
+        await updatePendingSale(sale.offline_sale_id, {
+          sync_status: "syncing",
+          sync_attempts: sale.sync_attempts + 1,
+        });
+
+        try {
+          const saleNo = await submitSaleOnline(sale.payload, sale);
+          await updatePendingSale(sale.offline_sale_id, {
+            sync_status: "synced",
+            server_sale_no: saleNo,
+            synced_at: new Date().toISOString(),
+            last_sync_error: undefined,
+          });
+        } catch (error) {
+          await updatePendingSale(sale.offline_sale_id, {
+            sync_status: "failed",
+            last_sync_error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      setPendingSyncCount(await countPendingSales());
+    } finally {
+      syncInProgressRef.current = false;
+    }
+  }, [submitSaleOnline]);
+
+  useEffect(() => {
+    async function refreshPendingCount() {
+      setPendingSyncCount(await countPendingSales());
+    }
+
+    function handleOnline() {
+      setIsOnline(true);
+      void syncPendingSales();
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+    }
+
+    void refreshPendingCount();
+    const syncTimer = window.setTimeout(() => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) void syncPendingSales();
+    }, 0);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.clearTimeout(syncTimer);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncPendingSales]);
+
   function holdBill() {
     if (!cart.length) return;
 
@@ -292,33 +410,33 @@ export default function PosClient() {
       qty: item.qty,
     }));
 
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("complete_pos_sale", {
-      payload: {
-        customer_name: customerName.trim() || null,
-        reference_no: referenceNo.trim() || null,
-        payment_method: paymentMethod,
-        discount_amount: discountAmount,
-        paid_amount: paymentMethod === "cash" ? cashReceived : payableTotal,
-        items: cart.map((item) => ({
-          product_id: item.id,
-          qty: item.qty,
-          unit_price: item.unitPrice,
-        })),
-      },
-    });
+    const payload = salePayload();
 
-    setLoading(false);
-
-    if (error) {
-      setMessage(error.message);
+    if (!navigator.onLine) {
+      const pendingSale = await addPendingSale(payload);
+      checkoutIdempotencyKeyRef.current = null;
+      setLoading(false);
+      setPendingSyncCount(await countPendingSales());
+      clearBill();
+      applySoldStock(soldItems);
+      setMessage(`บันทึก Offline แล้ว รอ Sync: ${pendingSale.client_invoice_no}`);
       return;
     }
 
-    clearBill();
-    applySoldStock(soldItems);
-    setMessage(`บันทึกการขายสำเร็จ: ${data}`);
-    await refreshSoldProducts(soldItems);
+    try {
+      checkoutIdempotencyKeyRef.current ??= crypto.randomUUID();
+      const saleNo = await submitSaleOnline(payload, undefined, checkoutIdempotencyKeyRef.current);
+      checkoutIdempotencyKeyRef.current = null;
+      setLoading(false);
+      clearBill();
+      applySoldStock(soldItems);
+      setMessage(`บันทึกการขายสำเร็จ: ${saleNo}`);
+      await refreshSoldProducts(soldItems);
+      await syncPendingSales();
+    } catch (error) {
+      setLoading(false);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
   }
 
   return (
@@ -336,6 +454,16 @@ export default function PosClient() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <div
+              className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${
+                isOnline
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
+            >
+              {isOnline ? "Online" : "Offline"}
+              {pendingSyncCount ? `· รอ Sync ${pendingSyncCount}` : ""}
+            </div>
             <Link
               href="/dashboard"
               className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50"
@@ -427,6 +555,12 @@ export default function PosClient() {
               ))}
             </div>
           </div>
+
+          {visibleProducts.length >= MAX_VISIBLE_PRODUCTS ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              แสดงสูงสุด {MAX_VISIBLE_PRODUCTS.toLocaleString("th-TH")} รายการ ปรับคำค้นหาเพื่อเจอสินค้าเร็วขึ้น
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {visibleProducts.map((product) => {

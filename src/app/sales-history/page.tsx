@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CalendarDays, ChevronDown, CreditCard, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ChevronDown, CreditCard, Download, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,6 +28,8 @@ type SaleRow = {
   total_amount: number;
   payment_method: string;
   status: string;
+  client_invoice_no: string | null;
+  offline_created_at: string | null;
   created_by: string | null;
   sale_items: SaleItemRow[];
   payments: PaymentRow[];
@@ -83,6 +85,10 @@ const statusFilterOptions: { value: StatusFilter; label: string }[] = [
 
 const voidStatuses = ["void", "voided", "canceled", "cancelled"];
 const refundStatuses = ["refund", "refunded"];
+const saleSelectBase =
+  "id, sale_no, sale_date, subtotal, discount_amount, total_amount, payment_method, status, created_by, sale_items(id, qty, unit_price, line_total, products(sku, name)), payments(id, payment_method, amount, reference_no)";
+const saleSelectWithOffline =
+  "id, sale_no, sale_date, subtotal, discount_amount, total_amount, payment_method, status, client_invoice_no, offline_created_at, created_by, sale_items(id, qty, unit_price, line_total, products(sku, name)), payments(id, payment_method, amount, reference_no)";
 
 function money(value: number) {
   return Number(value).toLocaleString("th-TH", {
@@ -297,31 +303,48 @@ export default async function SalesHistoryPage({
     return `/sales-history?${nextParams.toString()}`;
   };
 
-  let salesQuery = supabase
-    .from("sales")
-    .select(
-      "id, sale_no, sale_date, subtotal, discount_amount, total_amount, payment_method, status, created_by, sale_items(id, qty, unit_price, line_total, products(sku, name)), payments(id, payment_method, amount, reference_no)",
-    )
-    .gte("sale_date", range.start.toISOString())
-    .lt("sale_date", range.end.toISOString());
+  function createSalesQuery(selectColumns: string) {
+    let query = supabase
+      .from("sales")
+      .select(selectColumns)
+      .gte("sale_date", range.start.toISOString())
+      .lt("sale_date", range.end.toISOString());
 
-  if (selectedPayment !== "all") {
-    salesQuery = salesQuery.eq("payment_method", selectedPayment);
+    if (selectedPayment !== "all") {
+      query = query.eq("payment_method", selectedPayment);
+    }
+
+    if (selectedStatus === "completed") {
+      query = query.eq("status", "completed");
+    } else if (selectedStatus === "void") {
+      query = query.in("status", voidStatuses);
+    } else if (selectedStatus === "refund") {
+      query = query.in("status", refundStatuses);
+    }
+
+    return query.order("sale_date", { ascending: false }).limit(200);
   }
 
-  if (selectedStatus === "completed") {
-    salesQuery = salesQuery.eq("status", "completed");
-  } else if (selectedStatus === "void") {
-    salesQuery = salesQuery.in("status", voidStatuses);
-  } else if (selectedStatus === "refund") {
-    salesQuery = salesQuery.in("status", refundStatuses);
+  let { data, error } = await createSalesQuery(saleSelectWithOffline);
+  let offlineColumnsMissing = false;
+
+  if (
+    error &&
+    (error.code === "42703" ||
+      error.message.includes("client_invoice_no") ||
+      error.message.includes("offline_created_at"))
+  ) {
+    const fallback = await createSalesQuery(saleSelectBase);
+    data = fallback.data;
+    error = fallback.error;
+    offlineColumnsMissing = !fallback.error;
   }
 
-  const { data, error } = await salesQuery
-    .order("sale_date", { ascending: false })
-    .limit(200);
-
-  const sales = (data ?? []) as unknown as SaleRow[];
+  const sales = ((data ?? []) as unknown as Partial<SaleRow>[]).map((sale) => ({
+    client_invoice_no: null,
+    offline_created_at: null,
+    ...sale,
+  })) as SaleRow[];
   const completedSales = sales.filter((sale) => sale.status === "completed");
   const totalRevenue = completedSales.reduce((sum, sale) => sum + Number(sale.total_amount), 0);
   const completedSaleCount = completedSales.length;
@@ -430,6 +453,15 @@ export default async function SalesHistoryPage({
                   <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
                   กรอง
                 </button>
+                <button
+                  type="submit"
+                  formAction="/sales-history/export"
+                  formMethod="get"
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-800 hover:bg-emerald-100 xl:flex-none"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  CSV
+                </button>
                 {hasActiveFilters ? (
                   <Link
                     href="/sales-history"
@@ -449,6 +481,13 @@ export default async function SalesHistoryPage({
             </div>
           ) : null}
 
+          {offlineColumnsMissing ? (
+            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              ยังไม่ได้เพิ่ม column offline ใน Database จึงแสดงประวัติแบบปกติก่อน รัน{" "}
+              <code>supabase db push</code> เพื่อเปิดสีเหลือง/เลข Offline
+            </div>
+          ) : null}
+
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="จำนวนบิล" value={`${sales.length.toLocaleString("th-TH")} บิล`} />
             <MetricCard label="บิลสำเร็จ" value={`${completedSaleCount.toLocaleString("th-TH")} บิล`} />
@@ -465,9 +504,11 @@ export default async function SalesHistoryPage({
                 <h2 className="text-sm font-semibold text-slate-950">รายการบิลขาย</h2>
                 <p className="mt-1 text-xs text-slate-500">{rangeLabel}</p>
               </div>
-              <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
-                <CreditCard className="h-4 w-4" aria-hidden="true" />
-                {paymentLabel(selectedPayment)}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <CreditCard className="h-4 w-4" aria-hidden="true" />
+                  {paymentLabel(selectedPayment)}
+                </div>
               </div>
             </div>
             <div className="hidden gap-3 border-b border-slate-200 bg-white px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-500 lg:grid lg:grid-cols-[170px_1fr_170px_180px_150px_24px]">
@@ -481,19 +522,30 @@ export default async function SalesHistoryPage({
 
             <div className="divide-y divide-slate-100">
               {sales.length ? (
-                sales.map((sale) => (
-                  <details key={sale.id} className="group">
-                    <summary className="grid cursor-pointer list-none gap-3 px-4 py-4 text-sm hover:bg-slate-50 lg:grid-cols-[170px_1fr_170px_180px_150px_24px] lg:px-5">
+                sales.map((sale) => {
+                  const fromOffline = Boolean(sale.offline_created_at || sale.client_invoice_no);
+
+                  return (
+                  <details key={sale.id} className={`group ${fromOffline ? "bg-amber-50/70" : ""}`}>
+                    <summary
+                      className={`grid cursor-pointer list-none gap-3 px-4 py-4 text-sm lg:grid-cols-[170px_1fr_170px_180px_150px_24px] lg:px-5 ${
+                        fromOffline ? "hover:bg-amber-100/70" : "hover:bg-slate-50"
+                      }`}
+                    >
                       <div className="text-slate-600">
                         {saleDateLabel(sale.sale_date)}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-950">{sale.sale_no}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-950">{sale.sale_no}</span>
+                          {fromOffline ? <OfflineBadge /> : null}
+                        </div>
                         <div className="mt-1 text-xs text-slate-500">
                           {sale.sale_items.length.toLocaleString("th-TH")} รายการ · {quantity(
                             sale.sale_items.reduce((sum, item) => sum + Number(item.qty), 0),
                           )}{" "}
                           ชิ้น
+                          {sale.client_invoice_no ? ` · ${sale.client_invoice_no}` : ""}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 lg:block lg:space-y-1">
@@ -512,7 +564,7 @@ export default async function SalesHistoryPage({
                       />
                     </summary>
 
-                    <div className="bg-slate-50 px-4 pb-5 lg:px-5">
+                    <div className={`${fromOffline ? "bg-amber-50" : "bg-slate-50"} px-4 pb-5 lg:px-5`}>
                       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
                         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                           <div className="overflow-x-auto">
@@ -551,6 +603,12 @@ export default async function SalesHistoryPage({
                             <StatusBadge status={sale.status} />
                           </div>
                           <div className="mt-4 space-y-2">
+                            {sale.client_invoice_no ? (
+                              <SummaryRow label="เลข Offline" value={sale.client_invoice_no} />
+                            ) : null}
+                            {sale.offline_created_at ? (
+                              <SummaryRow label="เวลาขาย Offline" value={saleDateLabel(sale.offline_created_at)} />
+                            ) : null}
                             <SummaryRow label="ยอดก่อนลด" value={`${money(sale.subtotal)} บาท`} />
                             <SummaryRow label="ส่วนลด" value={`${money(sale.discount_amount)} บาท`} />
                             <SummaryRow label="ยอดสุทธิ" value={`${money(sale.total_amount)} บาท`} strong />
@@ -581,7 +639,8 @@ export default async function SalesHistoryPage({
                       </div>
                     </div>
                   </details>
-                ))
+                  );
+                })
               ) : (
                 <div className="grid min-h-48 place-items-center px-5 py-8 text-center">
                   <div>
@@ -622,6 +681,14 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${className}`}>
       {statusLabel(status)}
+    </span>
+  );
+}
+
+function OfflineBadge() {
+  return (
+    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
+      Offline
     </span>
   );
 }
