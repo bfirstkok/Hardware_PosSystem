@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CalendarDays, ChevronDown, CreditCard, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ChevronDown, CreditCard, Download, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
 
@@ -453,6 +453,15 @@ export default async function SalesHistoryPage({
                   <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
                   กรอง
                 </button>
+                <button
+                  type="submit"
+                  formAction="/sales-history/export"
+                  formMethod="get"
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-800 hover:bg-emerald-100 xl:flex-none"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  CSV
+                </button>
                 {hasActiveFilters ? (
                   <Link
                     href="/sales-history"
@@ -495,9 +504,11 @@ export default async function SalesHistoryPage({
                 <h2 className="text-sm font-semibold text-slate-950">รายการบิลขาย</h2>
                 <p className="mt-1 text-xs text-slate-500">{rangeLabel}</p>
               </div>
-              <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
-                <CreditCard className="h-4 w-4" aria-hidden="true" />
-                {paymentLabel(selectedPayment)}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <CreditCard className="h-4 w-4" aria-hidden="true" />
+                  {paymentLabel(selectedPayment)}
+                </div>
               </div>
             </div>
             <div className="hidden gap-3 border-b border-slate-200 bg-white px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-500 lg:grid lg:grid-cols-[170px_1fr_170px_180px_150px_24px]">
