@@ -67,9 +67,16 @@ create table if not exists sales (
   total_amount numeric(12,2) not null default 0,
   payment_method text not null default 'cash',
   status text not null default 'completed',
+  idempotency_key text unique,
+  client_invoice_no text,
+  offline_created_at timestamptz,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table sales add column if not exists idempotency_key text unique;
+alter table sales add column if not exists client_invoice_no text;
+alter table sales add column if not exists offline_created_at timestamptz;
 
 create table if not exists sale_items (
   id bigint generated always as identity primary key,
@@ -142,9 +149,22 @@ declare
   method text := coalesce(payload->>'payment_method', 'cash');
   reference text := nullif(payload->>'reference_no', '');
   customer text := nullif(payload->>'customer_name', '');
+  request_idempotency_key text := nullif(payload->>'idempotency_key', '');
+  request_client_invoice_no text := nullif(payload->>'client_invoice_no', '');
+  request_offline_created_at timestamptz := nullif(payload->>'offline_created_at', '')::timestamptz;
 begin
   if current_user_id is null then
     raise exception 'Authentication required.';
+  end if;
+
+  if request_idempotency_key is not null then
+    select sale_no into new_sale_no
+    from sales
+    where idempotency_key = request_idempotency_key;
+
+    if new_sale_no is not null then
+      return new_sale_no;
+    end if;
   end if;
 
   if jsonb_typeof(payload->'items') <> 'array' or jsonb_array_length(payload->'items') = 0 then
@@ -161,8 +181,24 @@ begin
 
   new_sale_no := 'SALE-' || to_char(now(), 'YYYYMMDDHH24MISSMS');
 
-  insert into sales (sale_no, payment_method, status, created_by)
-  values (new_sale_no, method, 'completed', current_user_id)
+  insert into sales (
+    sale_no,
+    payment_method,
+    status,
+    idempotency_key,
+    client_invoice_no,
+    offline_created_at,
+    created_by
+  )
+  values (
+    new_sale_no,
+    method,
+    'completed',
+    request_idempotency_key,
+    request_client_invoice_no,
+    request_offline_created_at,
+    current_user_id
+  )
   returning id into new_sale_id;
 
   for item in select * from jsonb_array_elements(payload->'items')
