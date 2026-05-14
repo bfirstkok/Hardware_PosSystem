@@ -157,10 +157,23 @@ begin
     raise exception 'Authentication required.';
   end if;
 
+  if request_idempotency_key is not null and length(request_idempotency_key) > 80 then
+    raise exception 'Invalid idempotency key.';
+  end if;
+
+  if request_client_invoice_no is not null and length(request_client_invoice_no) > 80 then
+    raise exception 'Invalid offline invoice number.';
+  end if;
+
+  if request_offline_created_at is not null and request_offline_created_at > now() + interval '5 minutes' then
+    raise exception 'Invalid offline created timestamp.';
+  end if;
+
   if request_idempotency_key is not null then
     select sale_no into new_sale_no
     from sales
-    where idempotency_key = request_idempotency_key;
+    where idempotency_key = request_idempotency_key
+      and created_by = current_user_id;
 
     if new_sale_no is not null then
       return new_sale_no;
