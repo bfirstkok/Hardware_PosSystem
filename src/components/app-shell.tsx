@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect, useRef, useMemo } from "react";
 import {
   Activity,
   BadgePercent,
@@ -82,12 +83,73 @@ const navGroups = [
   },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement> }) {
   const pathname = usePathname();
 
   return (
+    <nav ref={sidebarRef} className="h-[calc(100vh-4rem)] space-y-5 overflow-y-auto px-3 py-4" data-testid="sidebar-nav">
+      {navGroups.map((group) => (
+        <div key={group.label}>
+          <div className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            {group.label}
+          </div>
+          <div className="mt-2 space-y-1">
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
+                    active
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                  }`}
+                >
+                  <Icon size={18} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  // บันทึก scroll position ของ sidebar เมื่อ scroll
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+
+    const handleScroll = () => {
+      sessionStorage.setItem("sidebar-scroll", sidebar.scrollTop.toString());
+    };
+
+    sidebar.addEventListener("scroll", handleScroll);
+    return () => sidebar.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Restore scroll position เมื่อ component mount
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+
+    const stored = sessionStorage.getItem("sidebar-scroll");
+    if (stored) {
+      sidebar.scrollTop = parseInt(stored, 10);
+    }
+  }, []);
+
+  return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-slate-200 bg-white lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
           <ClipboardList className="text-emerald-700" size={24} />
           <div>
@@ -95,38 +157,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="text-xs text-slate-500">ระบบร้านวัสดุก่อสร้าง</div>
           </div>
         </div>
-        <nav className="h-[calc(100vh-4rem)] space-y-5 overflow-y-auto px-3 py-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <div className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                {group.label}
-              </div>
-              <div className="mt-2 space-y-1">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href;
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
-                        active
-                          ? "bg-emerald-50 text-emerald-800"
-                          : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
-                      }`}
-                    >
-                      <Icon size={18} />
-                      <span className="truncate">{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
+        <Sidebar sidebarRef={sidebarRef} />
       </aside>
-      <div className="lg:pl-72">
+      <div className="lg:pl-64">
         <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:px-6">
           <div>
             <div className="font-semibold">ระบบร้านวัสดุก่อสร้าง</div>
