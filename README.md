@@ -21,6 +21,7 @@
 
 - [📌 ภาพรวม](#-ภาพรวม)
 - [✨ ฟีเจอร์](#-ฟีเจอร์)
+- [🆕 อัปเดตล่าสุด](#-อัปเดตล่าสุด)
 - [🛠️ Tech Stack](#️-tech-stack)
 - [🚀 Quick Start](#-quick-start)
 - [📂 โครงสร้างโปรเจกต์](#-โครงสร้างโปรเจกต์)
@@ -77,8 +78,44 @@
 | **Multi-Branch** | P2 | Multiple outlets, branch reporting |
 | **Advanced Reporting** | P2 | Daily/monthly sales, product performance |
 | **Expense Tracking** | P2 | Operating costs analysis |
-| **Testing Framework** | P1 | Jest + RTL + E2E |
+| **Testing Framework** | P1 | Node test runner active, RTL + E2E planned |
 | **Receipt Printing** | P3 | Thermal printer integration |
+
+---
+
+## 🆕 อัปเดตล่าสุด
+
+### Navigation UX
+
+- Sidebar เปลี่ยนเป็น grouped navigation: แสดงหัวหมวดก่อน แล้วกดเพื่อ expand/collapse รายการย่อย
+- หมวดที่เปิดแล้วจะค้างไว้ ไม่ปิดเองเมื่อกดเมนูในหมวดอื่น
+- Highlight เหลือเฉพาะหัวหมวด เพื่อลดความสับสนของสี
+- รายการย่อยใช้ hover สีเทาอ่อน และยังมี `aria-current="page"` สำหรับ accessibility
+- เพิ่ม pending indicator บน link เพื่อให้เห็นว่าระบบรับ click แล้วระหว่างรอ navigation
+
+### Loading & Performance
+
+- เพิ่ม shared skeleton loading ที่ `src/components/page-loading.tsx`
+- เพิ่ม route-level `loading.tsx` ให้หน้าที่โหลดข้อมูลจาก Supabase:
+  - `src/app/dashboard/loading.tsx`
+  - `src/app/barcodes/loading.tsx`
+  - `src/app/pos/loading.tsx`
+  - `src/app/products/loading.tsx`
+  - `src/app/stock/loading.tsx`
+  - `src/app/sales-history/loading.tsx`
+- เวลาเข้า route ที่โหลดข้อมูลหนัก ผู้ใช้จะเห็น loading state ทันที แทนการค้างบนหน้าเดิม
+
+### Testing & Stability
+
+- เพิ่ม `src/lib/navigation-loading.test.mjs` เพื่อกัน regression ว่า data-heavy routes ต้องมี `loading.tsx`
+- Test suite ปัจจุบันมี 9 tests และรันด้วย `node --test`
+- คำสั่งตรวจหลักที่ใช้:
+
+```bash
+npm run lint
+npm run build
+npm test
+```
 
 ---
 
@@ -184,11 +221,17 @@ Hardware_PosSystem/
 │   │   │
 │   │   ├── login/page.tsx            # 🔑 Authentication
 │   │   ├── dashboard/page.tsx        # 📊 Dashboard & KPIs
+│   │   ├── dashboard/loading.tsx     # Loading skeleton
 │   │   ├── pos/page.tsx              # 🛒 POS Terminal
+│   │   ├── pos/loading.tsx           # Loading skeleton
 │   │   ├── products/page.tsx         # 📦 Product Management
+│   │   ├── products/loading.tsx      # Loading skeleton
 │   │   ├── stock/page.tsx            # 📥 Stock Management
+│   │   ├── stock/loading.tsx         # Loading skeleton
 │   │   │
 │   │   ├── barcodes/page.tsx         # 🏷️ Barcode Printing
+│   │   ├── barcodes/loading.tsx      # Loading skeleton
+│   │   ├── sales-history/loading.tsx # Loading skeleton
 │   │   ├── customers/page.tsx        # 👥 Customer CRM
 │   │   ├── employees/page.tsx        # 👨‍💼 Staff Management
 │   │   ├── suppliers/page.tsx        # 🏢 Supplier Management
@@ -198,9 +241,11 @@ Hardware_PosSystem/
 │   │
 │   ├── components/
 │   │   ├── app-shell.tsx             # Navigation sidebar
-│   │   └── module-page.tsx           # Page template
+│   │   ├── module-page.tsx           # Page template
+│   │   └── page-loading.tsx          # Shared route loading skeleton
 │   │
 │   └── lib/
+│       ├── navigation-loading.test.mjs
 │       └── supabase/
 │           ├── client.ts             # Browser client
 │           └── server.ts             # Server client
@@ -333,18 +378,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
 
 ## 🧪 Testing
 
-### Current Status: ❌ No Tests Yet
+### Current Status: ✅ Basic Test Suite
 
-- 0% code coverage
-- No testing framework installed
+- Uses Node.js built-in test runner
+- Current suite: 9 tests
+- Covers POS product filtering, sales CSV export safety, and navigation loading regression
 
-### Testing Plan
+### Run Tests
 
 ```bash
-# Install testing tools
-npm install --save-dev jest @testing-library/react ts-jest
-
-# Run tests
 npm test
 ```
 
@@ -353,6 +395,7 @@ npm test
 - Stock constraints
 - POS checkout flow
 - Component logic
+- Route loading fallbacks for data-heavy pages
 
 ---
 
@@ -519,8 +562,8 @@ npm run dev
 | **RPC Functions** | 2 |
 | **Implemented Pages** | 5 |
 | **Stubbed Pages** | 18 |
-| **Test Coverage** | 0% |
-| **Code Quality** | B |
+| **Tests** | 9 |
+| **Code Quality** | B+ |
 
 ---
 
@@ -560,6 +603,6 @@ Built with ❤️ for small businesses
 
 ---
 
-**Last Updated:** May 12, 2026  
+**Last Updated:** May 17, 2026  
 **Version:** 0.1.0 (Beta)  
 **Status:** 🟡 Active Development
