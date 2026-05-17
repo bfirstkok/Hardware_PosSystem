@@ -30,25 +30,21 @@ import {
   UsersRound,
 } from "lucide-react";
 
+const sidebarAccent = {
+  groupActive: "border-slate-900 bg-slate-900 text-white shadow-sm",
+  hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
+  ring: "focus-visible:ring-slate-500",
+};
+
 const navGroups = [
   {
     label: "หน้าร้าน",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [{ href: "/pos", label: "แคชเชียร์", icon: ShoppingCart }],
   },
   {
     label: "เอกสาร / รายงาน",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [
       { href: "/dashboard", label: "แดชบอร์ด", icon: LayoutDashboard },
       { href: "/reports", label: "รายงาน", icon: FileBarChart },
@@ -60,12 +56,7 @@ const navGroups = [
   },
   {
     label: "สินค้า / สโตร์",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [
       { href: "/stock", label: "สต๊อก", icon: Boxes },
       { href: "/products", label: "เพิ่มสินค้า", icon: Package },
@@ -75,12 +66,7 @@ const navGroups = [
   },
   {
     label: "โปรโมชั่น",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [
       { href: "/promotions", label: "โปรโมชั่น", icon: Gift },
       { href: "/discounts", label: "ส่วนลด", icon: BadgePercent },
@@ -88,12 +74,7 @@ const navGroups = [
   },
   {
     label: "CRM",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [
       { href: "/customers", label: "ลูกค้า", icon: UserRound },
       { href: "/points", label: "แลกสะสมแต้ม", icon: Gift },
@@ -102,12 +83,7 @@ const navGroups = [
   },
   {
     label: "บริหาร",
-    accent: {
-      icon: "text-white",
-      active: "border-slate-900 bg-slate-900 text-white",
-      hover: "hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950",
-      ring: "focus-visible:ring-slate-500",
-    },
+    accent: sidebarAccent,
     items: [
       { href: "/branches", label: "สาขา", icon: Building2 },
       { href: "/employees", label: "พนักงาน", icon: UsersRound },
@@ -140,11 +116,22 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
     [pathname]
   );
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [selectedGroupLabel, setSelectedGroupLabel] = useState<string | null>(null);
 
   const toggleGroup = (label: string) => {
+    setSelectedGroupLabel(label);
     setOpenGroups((current) => ({
       ...current,
       [label]: !current[label],
+    }));
+  };
+
+  const handleNavClick = (groupLabel: string) => {
+    setSelectedGroupLabel(groupLabel);
+    setOpenGroups((current) => ({
+      ...current,
+      ...(activeGroupLabel ? { [activeGroupLabel]: true } : {}),
+      [groupLabel]: true,
     }));
   };
 
@@ -152,6 +139,7 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
     <nav ref={sidebarRef} className="h-[calc(100vh-4rem)] space-y-5 overflow-y-auto px-3 py-4" data-testid="sidebar-nav">
       {navGroups.map((group, index) => {
         const hasActiveItem = group.label === activeGroupLabel;
+        const selected = group.label === (selectedGroupLabel ?? activeGroupLabel);
         const open = openGroups[group.label] ?? hasActiveItem;
         const panelId = `sidebar-group-${index}`;
 
@@ -163,8 +151,8 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
               aria-controls={panelId}
               onClick={() => toggleGroup(group.label)}
               className={`flex min-h-9 w-full items-center justify-between rounded-md border px-3 text-left text-xs font-semibold uppercase tracking-wide outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 ${
-                hasActiveItem
-                  ? group.accent.active
+                selected
+                  ? group.accent.groupActive
                   : `border-transparent bg-slate-50 text-slate-600 ${group.accent.hover}`
               } ${group.accent.ring}`}
             >
@@ -185,13 +173,11 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex min-h-10 items-center gap-3 rounded-md border px-3 py-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-[0.99] ${
-                        active
-                          ? group.accent.active
-                        : `border-transparent text-slate-700 ${group.accent.hover}`
-                    } ${group.accent.ring}`}
+                      onClick={() => handleNavClick(group.label)}
+                      className={`flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-medium text-slate-700 outline-none transition-colors hover:border-slate-200 hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-[0.99] ${group.accent.ring}`}
+                      aria-current={active ? "page" : undefined}
                     >
-                      <Icon size={18} className={active ? group.accent.icon : "text-slate-500"} />
+                      <Icon size={18} className="text-slate-500" />
                       <span className="truncate">{item.label}</span>
                       <LinkPendingIndicator />
                     </Link>
