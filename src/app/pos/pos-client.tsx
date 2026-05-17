@@ -8,7 +8,10 @@ import {
   Boxes,
   Calculator,
   CreditCard,
+  CalendarClock,
   Minus,
+  Maximize2,
+  Minimize2,
   Pause,
   Plus,
   QrCode,
@@ -98,6 +101,7 @@ function productInitials(name: string) {
 
 export default function PosClient() {
   const searchRef = useRef<HTMLInputElement>(null);
+  const pageRef = useRef<HTMLElement>(null);
   const checkoutIdempotencyKeyRef = useRef<string | null>(null);
   const syncInProgressRef = useRef(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -115,6 +119,8 @@ export default function PosClient() {
   const [message, setMessage] = useState("");
   const [isOnline, setIsOnline] = useState(true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [currentDateTime, setCurrentDateTime] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
@@ -136,6 +142,33 @@ export default function PosClient() {
 
     loadProducts();
     searchRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => {
+      setCurrentDateTime(
+        new Intl.DateTimeFormat("th-TH", {
+          dateStyle: "full",
+          timeStyle: "medium",
+        }).format(new Date()),
+      );
+    };
+
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    handleFullscreenChange();
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   const categories = useMemo(() => {
@@ -396,6 +429,15 @@ export default function PosClient() {
     setMessage("");
   }
 
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await pageRef.current?.requestFullscreen();
+  }
+
   async function checkout() {
     if (!cart.length || loading) return;
     if (paymentMethod === "cash" && cashReceived < payableTotal) {
@@ -441,420 +483,434 @@ export default function PosClient() {
 
   return (
     <AppShell>
-      <main className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="border-b border-slate-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid size-11 place-items-center rounded-md bg-emerald-700 text-white">
-              <ShoppingCart size={22} />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500">ขายหน้าร้านร้านวัสดุก่อสร้าง</p>
-              <h1 className="text-xl font-semibold">POS แคชเชียร์</h1>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <div
-              className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${
-                isOnline
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
-              }`}
-            >
-              {isOnline ? "Online" : "Offline"}
-              {pendingSyncCount ? `· รอ Sync ${pendingSyncCount}` : ""}
-            </div>
-            <Link
-              href="/dashboard"
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50"
-            >
-              <Boxes size={17} />
-              Dashboard
-            </Link>
-            <button
-              type="button"
-              onClick={clearBill}
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50"
-            >
-              <RotateCcw size={17} />
-              ล้างบิล
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_460px]">
-        <section className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-              <label className="flex h-12 items-center gap-2 rounded-md border border-slate-300 px-3 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100">
-                <Search size={19} className="text-slate-400" />
-                <input
-                  ref={searchRef}
-                  className="w-full outline-none"
-                  placeholder="สแกนบาร์โค้ด หรือค้นหาชื่อสินค้า / SKU"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      scanOrSearch();
-                    }
-                  }}
-                />
-                <Barcode size={19} className="text-slate-400" />
-              </label>
-
-              <div className="grid grid-cols-2 rounded-md border border-slate-300 bg-slate-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setPriceMode("retail")}
-                  className={`h-10 rounded px-4 text-sm font-medium ${
-                    priceMode === "retail" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
-                  }`}
-                >
-                  ปลีก
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPriceMode("wholesale")}
-                  className={`h-10 rounded px-4 text-sm font-medium ${
-                    priceMode === "wholesale" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
-                  }`}
-                >
-                  ส่ง
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-              <button
-                type="button"
-                onClick={() => setActiveCategory("all")}
-                className={`h-9 shrink-0 rounded-md px-3 text-sm font-medium ${
-                  activeCategory === "all"
-                    ? "bg-slate-950 text-white"
-                    : "border border-slate-300 bg-white text-slate-700"
-                }`}
-              >
-                ทั้งหมด
-              </button>
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => setActiveCategory(category)}
-                  className={`h-9 shrink-0 rounded-md px-3 text-sm font-medium ${
-                    activeCategory === category
-                      ? "bg-slate-950 text-white"
-                      : "border border-slate-300 bg-white text-slate-700"
-                  }`}
-                >
-                  {category}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {visibleProducts.length >= MAX_VISIBLE_PRODUCTS ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              แสดงสูงสุด {MAX_VISIBLE_PRODUCTS.toLocaleString("th-TH")} รายการ ปรับคำค้นหาเพื่อเจอสินค้าเร็วขึ้น
-            </div>
-          ) : null}
-
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-            {visibleProducts.map((product) => {
-              const unitPrice = selectedPrice(product);
-              const lowStock = Number(product.stock_qty) <= 0;
-
-              return (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => addToCart(product)}
-                  disabled={lowStock}
-                  className="overflow-hidden rounded-lg border border-slate-200 bg-white text-left transition hover:border-emerald-400 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  <div className="aspect-[4/3] bg-slate-100">
-                    {product.image_url ? (
-                      <div
-                        className="h-full w-full bg-cover bg-center"
-                        style={{ backgroundImage: `url("${product.image_url}")` }}
-                        aria-label={product.name}
-                      />
-                    ) : (
-                      <div className="grid h-full place-items-center bg-gradient-to-br from-slate-100 to-emerald-50">
-                        <div className="grid size-16 place-items-center rounded-md bg-white text-lg font-semibold text-emerald-800 shadow-sm">
-                          {productInitials(product.name)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-medium text-slate-500">{product.sku}</div>
-                      <div className="mt-1 line-clamp-2 font-semibold">{product.name}</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-slate-500">
-                        {product.product_categories?.name ?? "ไม่ระบุหมวด"} ·{" "}
-                        {product.units?.short_name ?? "หน่วย"}
-                      </div>
-                      <div className="mt-1 text-xl font-semibold">{money(unitPrice)}</div>
-                    </div>
-                    <div className="text-right text-xs text-slate-500">
-                      คงเหลือ
-                      <div className="text-sm font-semibold text-slate-800">
-                        {quantity(Number(product.stock_qty))}
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <aside className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 p-4">
-            <div className="flex items-center justify-between gap-3">
+      <main ref={pageRef} className="min-h-screen bg-slate-100 text-slate-950">
+        <div className={`mx-auto flex w-full flex-col gap-2 p-2 ${isFullscreen ? "h-screen" : ""}`}>
+          <div className="overflow-hidden rounded border border-slate-200 bg-white text-slate-950 shadow-sm">
+            <div className={`flex flex-wrap items-center justify-between gap-3 px-3 py-2 ${isFullscreen ? "py-1" : ""}`}>
               <div className="flex items-center gap-3">
-                <ReceiptText className="text-emerald-700" size={23} />
-                <div>
-                  <h2 className="font-semibold">บิลขาย</h2>
-                  <p className="text-sm text-slate-500">
-                    {cart.length} รายการ · {quantity(itemCount)} ชิ้น
-                  </p>
+                <div className="grid size-11 place-items-center rounded-sm bg-emerald-700 text-white shadow-sm">
+                  <ShoppingCart size={23} />
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={holdBill}
-                disabled={!cart.length}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Pause size={16} />
-                พักบิล
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              <label className="flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3">
-                <UserRound size={17} className="text-slate-400" />
-                <input
-                  className="w-full text-sm outline-none"
-                  placeholder="ชื่อลูกค้า"
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                />
-              </label>
-              <label className="flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3">
-                <ReceiptText size={17} className="text-slate-400" />
-                <input
-                  className="w-full text-sm outline-none"
-                  placeholder="เลขอ้างอิง / ใบเสนอราคา"
-                  value={referenceNo}
-                  onChange={(event) => setReferenceNo(event.target.value)}
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="max-h-[calc(100vh-520px)] min-h-64 overflow-y-auto p-4">
-            {cart.length ? (
-              <div className="space-y-3">
-                {cart.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-slate-200 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-slate-500">
-                          {item.sku} · {item.units?.short_name ?? "หน่วย"}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        aria-label="ลบสินค้า"
-                      >
-                        <Trash2 size={17} />
-                      </button>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-[122px_1fr] gap-3">
-                      <div className="flex h-10 items-center rounded-md border border-slate-300">
-                        <button
-                          type="button"
-                          className="grid size-10 place-items-center"
-                          onClick={() => updateQty(item.id, item.qty - 1)}
-                          aria-label="ลดจำนวน"
-                        >
-                          <Minus size={16} />
-                        </button>
-                        <input
-                          className="h-full w-10 border-x border-slate-300 text-center text-sm font-medium outline-none"
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.qty}
-                          onChange={(event) => updateQty(item.id, Number(event.target.value))}
-                        />
-                        <button
-                          type="button"
-                          className="grid size-10 place-items-center"
-                          onClick={() => updateQty(item.id, item.qty + 1)}
-                          aria-label="เพิ่มจำนวน"
-                        >
-                          <Plus size={16} />
-                        </button>
-                      </div>
-
-                      <label className="flex h-10 items-center rounded-md border border-slate-300 px-3 text-sm">
-                        <span className="shrink-0 text-slate-500">ราคา</span>
-                        <input
-                          className="min-w-0 flex-1 text-right outline-none"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.unitPrice}
-                          onChange={(event) => updatePrice(item.id, Number(event.target.value))}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="mt-3 text-right font-semibold">
-                      {money(item.qty * item.unitPrice)} บาท
-                    </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                    Hardware POS
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid h-64 place-items-center rounded-lg border border-dashed border-slate-300 text-center text-sm text-slate-500">
-                <div>
-                  <ShoppingCart className="mx-auto mb-3 text-slate-300" size={32} />
-                  ยังไม่มีสินค้าในบิล
+                  <h1 className={`text-lg font-semibold leading-tight ${isFullscreen ? "text-base" : ""}`}>แคชเชียร์ร้านวัสดุก่อสร้าง</h1>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <CalendarClock size={14} />
+                    <span>{currentDateTime || "-"}</span>
+                  </div>
                 </div>
               </div>
-            )}
-          </div>
 
-          {heldBills.length ? (
-            <div className="border-t border-slate-200 px-4 py-3">
-              <div className="mb-2 text-sm font-medium">บิลที่พักไว้</div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {heldBills.map((bill) => (
-                  <button
-                    key={bill.id}
-                    type="button"
-                    onClick={() => restoreHeldBill(bill)}
-                    className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900 hover:bg-amber-100"
-                  >
-                    <div className="font-semibold">{bill.customerName}</div>
-                    <div>{bill.items.length} รายการ</div>
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <div
+                  className={`inline-flex h-9 items-center gap-2 rounded border px-3 font-medium ${
+                    isOnline
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  {isOnline ? "Online" : "Offline"}
+                  {pendingSyncCount ? `· รอ Sync ${pendingSyncCount}` : ""}
+                </div>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex h-9 items-center gap-2 rounded border border-slate-300 bg-white px-3 font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Boxes size={16} />
+                  Reports
+                </Link>
+                <button
+                  type="button"
+                  onClick={clearBill}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-slate-300 bg-white px-3 font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <RotateCcw size={16} />
+                  Clear Sales
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void toggleFullscreen()}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-slate-300 bg-white px-3 font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                  {isFullscreen ? "Exit Full" : "Full Screen"}
+                </button>
               </div>
             </div>
-          ) : null}
+          </div>
 
-          <div className="border-t border-slate-200 p-4">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm font-medium">
-                ส่วนลด
-                <input
-                  className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-right"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={discountAmount}
-                  onChange={(event) => setDiscountAmount(Math.max(0, Number(event.target.value)))}
-                />
-              </label>
-              <label className="text-sm font-medium">
-                รับเงิน
-                <input
-                  className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 text-right"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cashReceived}
-                  onChange={(event) => setCashReceived(Math.max(0, Number(event.target.value)))}
-                />
-              </label>
-            </div>
+          <div className={`grid gap-2 xl:grid-cols-[minmax(0,1fr)_420px] 2xl:grid-cols-[minmax(0,1fr)_460px] ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
+            <section className="overflow-hidden rounded border border-slate-200 bg-white shadow-[0_6px_18px_rgba(0,0,0,0.08)]">
+              <div className="border-b border-slate-200 bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded border border-slate-300 bg-white px-3 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100">
+                    <Search size={18} className="text-slate-400" />
+                    <input
+                      ref={searchRef}
+                      className="w-full bg-transparent outline-none"
+                      placeholder="Scan / Swipe หรือค้นหาสินค้า, SKU, บาร์โค้ด"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          scanOrSearch();
+                        }
+                      }}
+                    />
+                    <Barcode size={18} className="text-slate-400" />
+                  </label>
 
-            <div className="mt-3 grid grid-cols-5 gap-2">
-              {quickCash.map((amount) => (
-                <button
-                  key={amount}
-                  type="button"
-                  onClick={() => setCashReceived(amount)}
-                  className="h-9 rounded-md border border-slate-300 text-xs font-medium hover:bg-slate-50"
-                >
-                  {amount.toLocaleString("th-TH")}
-                </button>
-              ))}
-            </div>
+                  <div className="grid grid-cols-2 rounded border border-slate-300 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setPriceMode("retail")}
+                      className={`h-10 rounded px-4 text-sm font-medium ${
+                        priceMode === "retail" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+                      }`}
+                    >
+                      ปลีก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPriceMode("wholesale")}
+                      className={`h-10 rounded px-4 text-sm font-medium ${
+                        priceMode === "wholesale" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+                      }`}
+                    >
+                      ส่ง
+                    </button>
+                  </div>
+                </div>
 
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {paymentOptions.map((option) => {
-                const Icon = option.icon;
-                return (
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                   <button
-                    key={option.value}
                     type="button"
-                    onClick={() => setPaymentMethod(option.value)}
-                    className={`flex h-11 items-center justify-center gap-1 rounded-md border text-sm font-medium ${
-                      paymentMethod === option.value
-                        ? "border-emerald-700 bg-emerald-50 text-emerald-800"
-                        : "border-slate-300 bg-white text-slate-600"
+                    onClick={() => setActiveCategory("all")}
+                    className={`h-9 shrink-0 rounded px-3 text-sm font-medium ${
+                      activeCategory === "all"
+                        ? "bg-slate-950 text-white"
+                        : "border border-slate-300 bg-white text-slate-700"
                     }`}
                   >
-                    <Icon size={16} />
-                    {option.label}
+                    ทั้งหมด
                   </button>
-                );
-              })}
-            </div>
+                  {categories.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setActiveCategory(category)}
+                      className={`h-9 shrink-0 rounded px-3 text-sm font-medium ${
+                        activeCategory === category
+                          ? "bg-slate-950 text-white"
+                          : "border border-slate-300 bg-white text-slate-700"
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-4 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">รวมสินค้า</span>
-                <span>{money(subtotal)} บาท</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">ส่วนลด</span>
-                <span>{money(discountAmount)} บาท</span>
-              </div>
-              <div className="flex items-center justify-between text-lg font-semibold">
-                <span>ยอดสุทธิ</span>
-                <span>{money(payableTotal)} บาท</span>
-              </div>
-              <div className="flex items-center justify-between text-emerald-700">
-                <span>เงินทอน</span>
-                <span>{money(changeAmount)} บาท</span>
-              </div>
-            </div>
+              {visibleProducts.length >= MAX_VISIBLE_PRODUCTS ? (
+                <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  แสดงสูงสุด {MAX_VISIBLE_PRODUCTS.toLocaleString("th-TH")} รายการ ปรับคำค้นหาเพื่อเจอสินค้าเร็วขึ้น
+                </div>
+              ) : null}
 
-            {message ? <p className="mt-3 text-sm text-slate-600">{message}</p> : null}
+              <div className={`p-2 ${isFullscreen ? "flex-1 min-h-0 overflow-y-auto" : ""}`}>
+                <div className="grid gap-1 grid-cols-[repeat(auto-fill,minmax(170px,1fr))] 2xl:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+                  {visibleProducts.map((product) => {
+                    const unitPrice = selectedPrice(product);
+                    const lowStock = Number(product.stock_qty) <= 0;
 
-            <button
-              type="button"
-              onClick={checkout}
-              disabled={!cart.length || loading}
-              className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-slate-950 font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? <Calculator size={18} /> : <Save size={18} />}
-              {loading ? "กำลังบันทึก..." : "ชำระเงินและบันทึกบิล"}
-            </button>
+                    return (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => addToCart(product)}
+                        disabled={lowStock}
+                        className={`group flex min-h-33 flex-col overflow-hidden rounded border text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                          lowStock ? "border-slate-200 bg-white" : "border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <div className="grid h-16 place-items-center bg-slate-100 text-slate-600">
+                          {product.image_url ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url("${product.image_url}")` }}
+                              aria-label={product.name}
+                            />
+                          ) : (
+                            <div className="grid size-10 place-items-center rounded bg-white text-xs font-semibold text-emerald-800 shadow-sm">
+                              {productInitials(product.name)}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-1 flex-col justify-between px-2 py-2">
+                          <div className="space-y-0.5">
+                            <div className="text-[11px] font-medium text-slate-500">{product.sku}</div>
+                            <div className="line-clamp-2 text-xs font-semibold leading-tight text-slate-900">
+                              {product.name}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex items-end justify-between gap-2 text-[11px] text-slate-600">
+                            <div>
+                              <div>{product.product_categories?.name ?? "วัสดุก่อสร้าง"}</div>
+                              <div className="font-medium text-slate-800">{money(unitPrice)}</div>
+                            </div>
+                            <div className="text-right">
+                              <div>คงเหลือ</div>
+                              <div className="font-semibold text-slate-800">{quantity(Number(product.stock_qty))}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <aside className={`overflow-hidden rounded border border-slate-200 bg-white shadow-[0_6px_18px_rgba(0,0,0,0.08)] ${isFullscreen ? "flex h-full min-h-0 flex-col" : ""}`}>
+              <div className={`border-b border-slate-200 bg-white px-3 py-2 ${isFullscreen ? "py-1" : ""}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold">บิลขาย</h2>
+                    <p className="text-xs text-slate-600">
+                      {cart.length} รายการ · {quantity(itemCount)} ชิ้น
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={holdBill}
+                    disabled={!cart.length}
+                    className="inline-flex h-9 items-center gap-2 rounded border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Pause size={16} />
+                    พักบิล
+                  </button>
+                </div>
+
+                <div className="mt-3 grid gap-2">
+                  <label className="flex h-10 items-center gap-2 rounded border border-slate-300 bg-white px-3">
+                    <UserRound size={16} className="text-slate-400" />
+                    <input
+                      className="w-full bg-transparent text-sm outline-none"
+                      placeholder="ชื่อลูกค้า"
+                      value={customerName}
+                      onChange={(event) => setCustomerName(event.target.value)}
+                    />
+                  </label>
+                  <label className="flex h-10 items-center gap-2 rounded border border-slate-300 bg-white px-3">
+                    <ReceiptText size={16} className="text-slate-400" />
+                    <input
+                      className="w-full bg-transparent text-sm outline-none"
+                      placeholder="เลขอ้างอิง / ใบเสนอราคา"
+                      value={referenceNo}
+                      onChange={(event) => setReferenceNo(event.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className={`max-h-[calc(100vh-465px)] min-h-64 overflow-y-auto p-3 ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
+                {cart.length ? (
+                  <div className="space-y-2">
+                    {cart.map((item) => (
+                      <div key={item.id} className="rounded border border-slate-200 bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{item.name}</div>
+                            <div className="text-sm text-slate-500">
+                              {item.sku} · {item.units?.short_name ?? "หน่วย"}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="ลบสินค้า"
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-[122px_1fr] gap-2">
+                          <div className="flex h-10 items-center rounded border border-slate-300 bg-white">
+                            <button
+                              type="button"
+                              className="grid size-10 place-items-center"
+                              onClick={() => updateQty(item.id, item.qty - 1)}
+                              aria-label="ลดจำนวน"
+                            >
+                              <Minus size={16} />
+                            </button>
+                            <input
+                              className="h-full w-10 border-x border-slate-300 bg-white text-center text-sm font-medium outline-none"
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={item.qty}
+                              onChange={(event) => updateQty(item.id, Number(event.target.value))}
+                            />
+                            <button
+                              type="button"
+                              className="grid size-10 place-items-center"
+                              onClick={() => updateQty(item.id, item.qty + 1)}
+                              aria-label="เพิ่มจำนวน"
+                            >
+                              <Plus size={16} />
+                            </button>
+                          </div>
+
+                          <label className="flex h-10 items-center rounded border border-slate-300 bg-white px-3 text-sm">
+                            <span className="shrink-0 text-slate-500">ราคา</span>
+                            <input
+                              className="min-w-0 flex-1 bg-transparent text-right outline-none"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.unitPrice}
+                              onChange={(event) => updatePrice(item.id, Number(event.target.value))}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="mt-2 text-right text-sm font-semibold">
+                          {money(item.qty * item.unitPrice)} บาท
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid h-64 place-items-center rounded border border-dashed border-slate-300 bg-white text-center text-sm text-slate-500">
+                    <div>
+                      <ShoppingCart className="mx-auto mb-3 text-slate-300" size={32} />
+                      ยังไม่มีสินค้าในบิล
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {heldBills.length ? (
+                <div className="border-t border-slate-200 px-3 py-2">
+                  <div className="mb-2 text-sm font-medium">บิลที่พักไว้</div>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {heldBills.map((bill) => (
+                      <button
+                        key={bill.id}
+                        type="button"
+                        onClick={() => restoreHeldBill(bill)}
+                        className="shrink-0 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900 hover:bg-amber-100"
+                      >
+                        <div className="font-semibold">{bill.customerName}</div>
+                        <div>{bill.items.length} รายการ</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className={`border-t border-slate-200 bg-slate-50 px-3 py-3 ${isFullscreen ? "mt-auto" : ""}`}>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-sm font-medium">
+                    ส่วนลด
+                    <input
+                      className="mt-1 h-10 w-full rounded border border-slate-300 bg-white px-3 text-right outline-none"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={discountAmount}
+                      onChange={(event) => setDiscountAmount(Math.max(0, Number(event.target.value)))}
+                    />
+                  </label>
+                  <label className="text-sm font-medium">
+                    รับเงิน
+                    <input
+                      className="mt-1 h-10 w-full rounded border border-slate-300 bg-white px-3 text-right outline-none"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={cashReceived}
+                      onChange={(event) => setCashReceived(Math.max(0, Number(event.target.value)))}
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-3 grid grid-cols-5 gap-1">
+                  {quickCash.map((amount) => (
+                    <button
+                      key={amount}
+                      type="button"
+                      onClick={() => setCashReceived(amount)}
+                      className="h-9 rounded border border-slate-300 bg-white text-xs font-medium hover:bg-slate-50"
+                    >
+                      {amount.toLocaleString("th-TH")}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  {paymentOptions.map((option) => {
+                    const Icon = option.icon;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setPaymentMethod(option.value)}
+                        className={`flex h-10 items-center justify-center gap-1 rounded border text-sm font-medium ${
+                          paymentMethod === option.value
+                            ? "border-emerald-700 bg-emerald-50 text-emerald-800"
+                            : "border-slate-300 bg-white text-slate-600"
+                        }`}
+                      >
+                        <Icon size={15} />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 space-y-2 rounded border border-slate-200 bg-white p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">รวมสินค้า</span>
+                    <span>{money(subtotal)} บาท</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">ส่วนลด</span>
+                    <span>{money(discountAmount)} บาท</span>
+                  </div>
+                  <div className="flex items-center justify-between text-lg font-semibold">
+                    <span>ยอดสุทธิ</span>
+                    <span>{money(payableTotal)} บาท</span>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-800">
+                    <span>เงินทอน</span>
+                    <span>{money(changeAmount)} บาท</span>
+                  </div>
+                </div>
+
+                {message ? <p className="mt-2 text-sm text-slate-600">{message}</p> : null}
+
+                <button
+                  type="button"
+                  onClick={checkout}
+                  disabled={!cart.length || loading}
+                  className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded bg-slate-950 font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? <Calculator size={18} /> : <Save size={18} />}
+                  {loading ? "กำลังบันทึก..." : "ชำระเงินและบันทึกบิล"}
+                </button>
+              </div>
+            </aside>
           </div>
-        </aside>
-      </div>
+        </div>
       </main>
     </AppShell>
   );
