@@ -111,6 +111,31 @@ create table if not exists stock_movements (
   created_by uuid references auth.users(id) on delete set null
 );
 
+create table if not exists product_price_history (
+  id bigint generated always as identity primary key,
+  product_id bigint not null references products(id) on delete restrict,
+  old_retail_price numeric(12,2) not null default 0 check (old_retail_price >= 0),
+  new_retail_price numeric(12,2) not null default 0 check (new_retail_price >= 0),
+  old_wholesale_price numeric(12,2) not null default 0 check (old_wholesale_price >= 0),
+  new_wholesale_price numeric(12,2) not null default 0 check (new_wholesale_price >= 0),
+  old_cost_price numeric(12,2) not null default 0 check (old_cost_price >= 0),
+  new_cost_price numeric(12,2) not null default 0 check (new_cost_price >= 0),
+  changed_by uuid references auth.users(id) on delete set null,
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists product_price_history_product_changed_idx
+on product_price_history (product_id, changed_at desc);
+
+create index if not exists stock_movements_type_date_idx
+on stock_movements (movement_type, movement_date desc);
+
+create index if not exists stock_movements_product_type_date_idx
+on stock_movements (product_id, movement_type, movement_date desc);
+
+create index if not exists sale_items_sale_product_idx
+on sale_items (sale_id, product_id);
+
 create or replace function touch_updated_at()
 returns trigger
 language plpgsql
@@ -355,6 +380,7 @@ alter table sales enable row level security;
 alter table sale_items enable row level security;
 alter table payments enable row level security;
 alter table stock_movements enable row level security;
+alter table product_price_history enable row level security;
 
 drop policy if exists "authenticated read categories" on product_categories;
 create policy "authenticated read categories" on product_categories
@@ -391,6 +417,14 @@ for select to authenticated using (true);
 drop policy if exists "authenticated read stock movements" on stock_movements;
 create policy "authenticated read stock movements" on stock_movements
 for select to authenticated using (true);
+
+drop policy if exists "authenticated read product price history" on product_price_history;
+create policy "authenticated read product price history" on product_price_history
+for select to authenticated using (true);
+
+drop policy if exists "authenticated insert product price history" on product_price_history;
+create policy "authenticated insert product price history" on product_price_history
+for insert to authenticated with check (true);
 
 insert into product_categories (name)
 values

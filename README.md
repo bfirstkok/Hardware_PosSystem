@@ -85,6 +85,32 @@
 
 ## 🆕 อัปเดตล่าสุด
 
+### Product History MVP
+
+- เปลี่ยน `/product-history` จากหน้า placeholder เป็น timeline ประวัติสินค้าใช้งานจริง
+- รองรับ filter ตามสินค้า, ประเภท (`รับเข้า`, `ขายออก`, `แก้ไขราคา`), วันที่เริ่ม และวันที่สิ้นสุด
+- แสดงประวัติรับเข้า/ขายออกจาก `stock_movements`
+- รายการขายออกแสดง `sales.sale_no` และ `sale_items.unit_price`
+- ดาวน์โหลดประวัติสินค้าเป็น CSV ได้ที่ `/product-history/export` โดยใช้ filter ปัจจุบันจากหน้า `/product-history`
+- CSV ใส่ UTF-8 BOM และป้องกัน spreadsheet formula injection สำหรับค่าที่ขึ้นต้นด้วย `=`, `+`, `-`, `@`
+- เพิ่ม `product_price_history` สำหรับเก็บประวัติแก้ราคา:
+  - ราคาปลีกเก่า → ใหม่
+  - ราคาส่งเก่า → ใหม่
+  - ต้นทุนเก่า → ใหม่
+  - ผู้แก้ไขและเวลาที่แก้
+- เพิ่ม helper/test ที่ `src/lib/product-history.mjs` และ `src/lib/product-history.test.mjs`
+- เพิ่ม performance indexes:
+  - `stock_movements_type_date_idx`
+  - `stock_movements_product_type_date_idx`
+  - `sale_items_sale_product_idx`
+
+Migration ที่เกี่ยวข้อง:
+
+```text
+supabase/migrations/202605190001_product_price_history.sql
+supabase/migrations/202605190002_product_history_performance.sql
+```
+
 ### Navigation UX
 
 - Sidebar เปลี่ยนเป็น grouped navigation: แสดงหัวหมวดก่อน แล้วกดเพื่อ expand/collapse รายการย่อย
@@ -108,7 +134,8 @@
 ### Testing & Stability
 
 - เพิ่ม `src/lib/navigation-loading.test.mjs` เพื่อกัน regression ว่า data-heavy routes ต้องมี `loading.tsx`
-- Test suite ปัจจุบันมี 9 tests และรันด้วย `node --test`
+- เพิ่ม `src/lib/product-history.test.mjs` ครอบคลุม sale reference, unit price, และ price-change mapping
+- Test suite ปัจจุบันมี 12 tests และรันด้วย `node --test`
 - คำสั่งตรวจหลักที่ใช้:
 
 ```bash
