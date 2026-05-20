@@ -85,20 +85,36 @@
 
 ## 🆕 อัปเดตล่าสุด
 
-### Product History MVP
+### Sales/Product History UI, Audit และ Pagination
 
-- เปลี่ยน `/product-history` จากหน้า placeholder เป็น timeline ประวัติสินค้าใช้งานจริง
-- รองรับ filter ตามสินค้า, ประเภท (`รับเข้า`, `ขายออก`, `แก้ไขราคา`), วันที่เริ่ม และวันที่สิ้นสุด
-- แสดงประวัติรับเข้า/ขายออกจาก `stock_movements`
-- รายการขายออกแสดง `sales.sale_no` และ `sale_items.unit_price`
-- ดาวน์โหลดประวัติสินค้าเป็น CSV ได้ที่ `/product-history/export` โดยใช้ filter ปัจจุบันจากหน้า `/product-history`
+- ปรับ `/sales-history` และ `/product-history` ให้ใช้รูปแบบ UI เดียวกัน:
+  - header + count badge
+  - date period switcher (`รายวัน`, `สัปดาห์`, `เดือน`, `ปี`)
+  - filter panel
+  - summary cards
+  - CSV action
+- เพิ่ม server-side pagination:
+  - `/sales-history` แสดงครั้งละ `200` บิล
+  - `/product-history` แสดงครั้งละ `100` รายการ
+  - ใช้ query param `page`
+  - ปุ่ม `ก่อนหน้า` / `ถัดไป` เก็บ filter เดิมไว้
+- เพิ่ม helper pagination:
+  - `src/lib/pagination.mjs`
+  - `src/lib/pagination.test.mjs`
+- `/product-history` รองรับข้อมูลจาก:
+  - `stock_movements`
+  - `product_price_history`
+  - `sale_items` เพื่อแสดง `sales.sale_no` และ `sale_items.unit_price`
+- แยกประเภท stock return จากการยกเลิก/คืนเงิน:
+  - `void_return` แสดงเป็น `คืนจากยกเลิก`
+  - `refund_return` แสดงเป็น `คืนจากคืนเงิน`
+- `/product-history/export` รองรับ filter, period/date range และประเภทใหม่เหมือนหน้าจอ
 - CSV ใส่ UTF-8 BOM และป้องกัน spreadsheet formula injection สำหรับค่าที่ขึ้นต้นด้วย `=`, `+`, `-`, `@`
 - เพิ่ม `product_price_history` สำหรับเก็บประวัติแก้ราคา:
-  - ราคาปลีกเก่า → ใหม่
-  - ราคาส่งเก่า → ใหม่
-  - ต้นทุนเก่า → ใหม่
+  - ราคาปลีกเก่า -> ใหม่
+  - ราคาส่งเก่า -> ใหม่
+  - ต้นทุนเก่า -> ใหม่
   - ผู้แก้ไขและเวลาที่แก้
-- เพิ่ม helper/test ที่ `src/lib/product-history.mjs` และ `src/lib/product-history.test.mjs`
 - เพิ่ม performance indexes:
   - `stock_movements_type_date_idx`
   - `stock_movements_product_type_date_idx`
@@ -109,17 +125,15 @@ Migration ที่เกี่ยวข้อง:
 ```text
 supabase/migrations/202605190001_product_price_history.sql
 supabase/migrations/202605190002_product_history_performance.sql
-
-#### Product History — รายละเอียดฟีเจอร์ (สรุป)
-
-- **ตัวกรอง (Filters):** รองรับการกรองตามสินค้า, ประเภทการเคลื่อนไหว (`รับเข้า`, `ขายออก`, `ปรับยอด`, `แก้ไขราคา`) และช่วงวันที่ (from / to).
-- **แหล่งข้อมูล:** อ่านข้อมูลจาก `stock_movements` และ `product_price_history` รวมถึงดึง `sale_items` เพื่อแสดง `sale_no` และ `unit_price` เมื่อเป็นรายการขาย (ดูโค้ดที่ [src/app/product-history/page.tsx](src/app/product-history/page.tsx)).
-- **การแสดงผล:** แสดง timeline ตารางวันที่, สินค้า, ประเภท (badge), จำนวนเข้า/ออก, รายละเอียด, อ้างอิง และผู้ทำรายการ; ใช้การฟอร์แมตตัวเลข/สกุลเงินตาม locale ไทย (ดู helper ที่ [src/lib/product-history.mjs](src/lib/product-history.mjs)).
-- **การดาวน์โหลด CSV:** ปุ่ม `ดาวน์โหลด CSV` จะเรียก endpoint `/product-history/export` โดยส่ง filter ปัจจุบันและสร้างไฟล์ CSV ที่ใส่ UTF-8 BOM และป้องกันสูตรสเปรดชีต (safeSpreadsheetText) เพื่อความปลอดภัยของข้อมูล.
-- **การแมปข้อมูลราคา:** บันทึกและแสดงการเปลี่ยนแปลงราคา (ราคาปลีก/ส่ง/ต้นทุน เก่า → ใหม่) พร้อมผู้แก้ไขและเวลา ซึ่งเก็บในตาราง `product_price_history` (migration: [supabase/migrations/202605190001_product_price_history.sql](supabase/migrations/202605190001_product_price_history.sql)).
-- **ข้อจำกัด/ข้อสังเกต:** จำกัดผลลัพธ์สูงสุด 100 รายการ, ต้องล็อกอิน (redirect ไปที่ `/login` หากยังไม่ได้ล็อกอิน), และจะแสดงคำแนะนำให้รัน migration หาก `product_price_history` ยังไม่ถูกสร้าง.
-
+supabase/migrations/202605200001_sales_history_integrity.sql
+supabase/migrations/202605200002_void_refund_functions.sql
 ```
+
+Quality notes:
+
+- Security: export CSV escape สูตร spreadsheet, หน้า history ต้องผ่าน `supabase.auth.getUser()` และ redirect/return `401` เมื่อไม่ login
+- Testing: เพิ่ม coverage สำหรับ `product-history`, `sales-history-export`, `pagination`
+- Performance: ใช้ `.range()` + count สำหรับ pagination และมี index สำหรับ query ตามประเภท/วันที่/สินค้า
 
 ### Navigation UX
 
@@ -418,8 +432,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
 ### Current Status: ✅ Basic Test Suite
 
 - Uses Node.js built-in test runner
-- Current suite: 9 tests
-- Covers POS product filtering, sales CSV export safety, and navigation loading regression
+- Current suite: 22 tests
+- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, and navigation loading regression
 
 ### Run Tests
 
