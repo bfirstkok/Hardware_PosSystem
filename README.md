@@ -85,6 +85,56 @@
 
 ## 🆕 อัปเดตล่าสุด
 
+### Sales/Product History UI, Audit และ Pagination
+
+- ปรับ `/sales-history` และ `/product-history` ให้ใช้รูปแบบ UI เดียวกัน:
+  - header + count badge
+  - date period switcher (`รายวัน`, `สัปดาห์`, `เดือน`, `ปี`)
+  - filter panel
+  - summary cards
+  - CSV action
+- เพิ่ม server-side pagination:
+  - `/sales-history` แสดงครั้งละ `200` บิล
+  - `/product-history` แสดงครั้งละ `100` รายการ
+  - ใช้ query param `page`
+  - ปุ่ม `ก่อนหน้า` / `ถัดไป` เก็บ filter เดิมไว้
+- เพิ่ม helper pagination:
+  - `src/lib/pagination.mjs`
+  - `src/lib/pagination.test.mjs`
+- `/product-history` รองรับข้อมูลจาก:
+  - `stock_movements`
+  - `product_price_history`
+  - `sale_items` เพื่อแสดง `sales.sale_no` และ `sale_items.unit_price`
+- แยกประเภท stock return จากการยกเลิก/คืนเงิน:
+  - `void_return` แสดงเป็น `คืนจากยกเลิก`
+  - `refund_return` แสดงเป็น `คืนจากคืนเงิน`
+- `/product-history/export` รองรับ filter, period/date range และประเภทใหม่เหมือนหน้าจอ
+- CSV ใส่ UTF-8 BOM และป้องกัน spreadsheet formula injection สำหรับค่าที่ขึ้นต้นด้วย `=`, `+`, `-`, `@`
+- เพิ่ม `product_price_history` สำหรับเก็บประวัติแก้ราคา:
+  - ราคาปลีกเก่า -> ใหม่
+  - ราคาส่งเก่า -> ใหม่
+  - ต้นทุนเก่า -> ใหม่
+  - ผู้แก้ไขและเวลาที่แก้
+- เพิ่ม performance indexes:
+  - `stock_movements_type_date_idx`
+  - `stock_movements_product_type_date_idx`
+  - `sale_items_sale_product_idx`
+
+Migration ที่เกี่ยวข้อง:
+
+```text
+supabase/migrations/202605190001_product_price_history.sql
+supabase/migrations/202605190002_product_history_performance.sql
+supabase/migrations/202605200001_sales_history_integrity.sql
+supabase/migrations/202605200002_void_refund_functions.sql
+```
+
+Quality notes:
+
+- Security: export CSV escape สูตร spreadsheet, หน้า history ต้องผ่าน `supabase.auth.getUser()` และ redirect/return `401` เมื่อไม่ login
+- Testing: เพิ่ม coverage สำหรับ `product-history`, `sales-history-export`, `pagination`
+- Performance: ใช้ `.range()` + count สำหรับ pagination และมี index สำหรับ query ตามประเภท/วันที่/สินค้า
+
 ### Navigation UX
 
 - Sidebar เปลี่ยนเป็น grouped navigation: แสดงหัวหมวดก่อน แล้วกดเพื่อ expand/collapse รายการย่อย
@@ -108,7 +158,8 @@
 ### Testing & Stability
 
 - เพิ่ม `src/lib/navigation-loading.test.mjs` เพื่อกัน regression ว่า data-heavy routes ต้องมี `loading.tsx`
-- Test suite ปัจจุบันมี 9 tests และรันด้วย `node --test`
+- เพิ่ม `src/lib/product-history.test.mjs` ครอบคลุม sale reference, unit price, และ price-change mapping
+- Test suite ปัจจุบันมี 12 tests และรันด้วย `node --test`
 - คำสั่งตรวจหลักที่ใช้:
 
 ```bash
@@ -381,8 +432,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
 ### Current Status: ✅ Basic Test Suite
 
 - Uses Node.js built-in test runner
-- Current suite: 9 tests
-- Covers POS product filtering, sales CSV export safety, and navigation loading regression
+- Current suite: 22 tests
+- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, and navigation loading regression
 
 ### Run Tests
 
