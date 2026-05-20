@@ -29,6 +29,12 @@ type UnitRow = {
   short_name: string;
 };
 
+type ProductPrice = {
+  retail_price: number;
+  wholesale_price: number;
+  cost_price: number;
+};
+
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const imageExtensions: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -221,6 +227,7 @@ async function updateProduct(formData: FormData) {
   "use server";
 
   const supabase = await requireUser();
+  const { data: userData } = await supabase.auth.getUser();
   const id = positiveIdField(formData, "id", "สินค้า");
   const categoryId = optionalIdField(formData, "category_id", "หมวด");
   const unitId = optionalIdField(formData, "base_unit_id", "หน่วย");
@@ -236,6 +243,16 @@ async function updateProduct(formData: FormData) {
   const uploadResult = await uploadProductImage(supabase, sku, imageFile);
   if (uploadResult.imageUrl) {
     imageUrl = uploadResult.imageUrl;
+  }
+
+  const { data: currentProduct, error: currentProductError } = await supabase
+    .from("products")
+    .select("retail_price, wholesale_price, cost_price")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (currentProductError || !currentProduct) {
+    productError("ไม่พบสินค้าที่ต้องการแก้ไข");
   }
 
   const { error: updateError } = await supabase
@@ -256,10 +273,34 @@ async function updateProduct(formData: FormData) {
     productError("แก้ไขสินค้าไม่สำเร็จ");
   }
 
+  const oldPrice = currentProduct as ProductPrice;
+  const priceChanged =
+    Number(oldPrice.retail_price) !== retailPrice ||
+    Number(oldPrice.wholesale_price) !== wholesalePrice ||
+    Number(oldPrice.cost_price) !== costPrice;
+
+  if (priceChanged) {
+    const { error: priceHistoryError } = await supabase.from("product_price_history").insert({
+      product_id: id,
+      old_retail_price: oldPrice.retail_price,
+      new_retail_price: retailPrice,
+      old_wholesale_price: oldPrice.wholesale_price,
+      new_wholesale_price: wholesalePrice,
+      old_cost_price: oldPrice.cost_price,
+      new_cost_price: costPrice,
+      changed_by: userData.user?.id ?? null,
+    });
+
+    if (priceHistoryError) {
+      productError("บันทึกประวัติราคาไม่สำเร็จ");
+    }
+  }
+
   revalidatePath("/products");
   revalidatePath("/pos");
   revalidatePath("/barcodes");
   revalidatePath("/dashboard");
+  revalidatePath("/product-history");
 
   if (uploadResult.warning) {
     redirect(`/products?imageUpload=${encodeURIComponent(uploadResult.warning)}`);
