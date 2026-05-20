@@ -18,6 +18,8 @@ export function actorLabel(actorId, currentUserId, currentEmail) {
 export function movementLabel(type) {
   if (type === "receive") return "รับเข้า";
   if (type === "sale") return "ขายออก";
+  if (type === "void_return") return "คืนจากยกเลิก";
+  if (type === "refund_return") return "คืนจากคืนเงิน";
   if (type === "price_change") return "แก้ไขราคา";
   return "ปรับยอด";
 }
@@ -25,13 +27,23 @@ export function movementLabel(type) {
 export function movementBadgeClass(type) {
   if (type === "receive") return "bg-emerald-50 text-emerald-700";
   if (type === "sale") return "bg-sky-50 text-sky-700";
+  if (type === "void_return") return "bg-rose-50 text-rose-700";
+  if (type === "refund_return") return "bg-orange-50 text-orange-700";
   if (type === "price_change") return "bg-amber-50 text-amber-700";
   return "bg-slate-100 text-slate-700";
 }
 
-export function stockMovementType(type) {
-  if (type === "receive") return "receive";
-  if (type === "sale") return "sale";
+function returnReason(note, prefix) {
+  return note?.startsWith(prefix) ? note.slice(prefix.length).trim() : "";
+}
+
+export function stockMovementType(item) {
+  if (item.movement_type === "receive" && item.ref_type === "sales") {
+    if (item.note?.startsWith("Void sale:")) return "void_return";
+    if (item.note?.startsWith("Refund sale:")) return "refund_return";
+  }
+  if (item.movement_type === "receive") return "receive";
+  if (item.movement_type === "sale") return "sale";
   return "adjustment";
 }
 
@@ -57,23 +69,31 @@ export function priceChangeDetail(item) {
 
 export function mapStockMovement(item, saleLines, currentUser) {
   const saleLine = saleLines.get(saleLineKey(item.ref_id, item.product_id));
+  const type = stockMovementType(item);
+  const saleRef = saleLine?.sales?.sale_no ?? `sales #${item.ref_id}`;
+  const voidReason = returnReason(item.note, "Void sale:");
+  const refundReason = returnReason(item.note, "Refund sale:");
 
   return {
     id: `stock-${item.id}`,
     date: item.movement_date,
     productSku: item.products?.sku ?? "-",
     productName: item.products?.name ?? "-",
-    type: stockMovementType(item.movement_type),
+    type,
     qtyIn: Number(item.qty_in),
     qtyOut: Number(item.qty_out),
     detail:
-      item.movement_type === "sale"
+      type === "sale"
         ? `ราคาขายต่อหน่วย ${money(Number(saleLine?.unit_price ?? 0))}`
+        : type === "void_return"
+          ? `คืนสต๊อกจากยกเลิก${voidReason ? `: ${voidReason}` : ""}`
+          : type === "refund_return"
+            ? `คืนสต๊อกจากคืนเงิน${refundReason ? `: ${refundReason}` : ""}`
         : item.note || item.movement_type,
     actor: actorLabel(item.created_by, currentUser.id, currentUser.email),
     ref:
-      item.movement_type === "sale"
-        ? saleLine?.sales?.sale_no ?? `sales #${item.ref_id}`
+      type === "sale" || type === "void_return" || type === "refund_return"
+        ? saleRef
         : item.ref_type && item.ref_id
           ? `${item.ref_type} #${item.ref_id}`
           : item.ref_type ?? "-",

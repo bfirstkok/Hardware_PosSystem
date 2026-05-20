@@ -109,6 +109,16 @@ Migration ที่เกี่ยวข้อง:
 ```text
 supabase/migrations/202605190001_product_price_history.sql
 supabase/migrations/202605190002_product_history_performance.sql
+
+#### Product History — รายละเอียดฟีเจอร์ (สรุป)
+
+- **ตัวกรอง (Filters):** รองรับการกรองตามสินค้า, ประเภทการเคลื่อนไหว (`รับเข้า`, `ขายออก`, `ปรับยอด`, `แก้ไขราคา`) และช่วงวันที่ (from / to).
+- **แหล่งข้อมูล:** อ่านข้อมูลจาก `stock_movements` และ `product_price_history` รวมถึงดึง `sale_items` เพื่อแสดง `sale_no` และ `unit_price` เมื่อเป็นรายการขาย (ดูโค้ดที่ [src/app/product-history/page.tsx](src/app/product-history/page.tsx)).
+- **การแสดงผล:** แสดง timeline ตารางวันที่, สินค้า, ประเภท (badge), จำนวนเข้า/ออก, รายละเอียด, อ้างอิง และผู้ทำรายการ; ใช้การฟอร์แมตตัวเลข/สกุลเงินตาม locale ไทย (ดู helper ที่ [src/lib/product-history.mjs](src/lib/product-history.mjs)).
+- **การดาวน์โหลด CSV:** ปุ่ม `ดาวน์โหลด CSV` จะเรียก endpoint `/product-history/export` โดยส่ง filter ปัจจุบันและสร้างไฟล์ CSV ที่ใส่ UTF-8 BOM และป้องกันสูตรสเปรดชีต (safeSpreadsheetText) เพื่อความปลอดภัยของข้อมูล.
+- **การแมปข้อมูลราคา:** บันทึกและแสดงการเปลี่ยนแปลงราคา (ราคาปลีก/ส่ง/ต้นทุน เก่า → ใหม่) พร้อมผู้แก้ไขและเวลา ซึ่งเก็บในตาราง `product_price_history` (migration: [supabase/migrations/202605190001_product_price_history.sql](supabase/migrations/202605190001_product_price_history.sql)).
+- **ข้อจำกัด/ข้อสังเกต:** จำกัดผลลัพธ์สูงสุด 100 รายการ, ต้องล็อกอิน (redirect ไปที่ `/login` หากยังไม่ได้ล็อกอิน), และจะแสดงคำแนะนำให้รัน migration หาก `product_price_history` ยังไม่ถูกสร้าง.
+
 ```
 
 ### Navigation UX

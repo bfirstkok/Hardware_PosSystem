@@ -41,6 +41,60 @@ test("mapStockMovement shows sale number and unit price for sale rows", () => {
   assert.equal(item.actor, "cashier@example.com");
 });
 
+test("mapStockMovement separates void and refund stock returns", () => {
+  const saleLines = buildSaleLineLookup([
+    {
+      sale_id: 12,
+      product_id: 7,
+      unit_price: 145,
+      sales: { sale_no: "INV-20260520-001" },
+    },
+  ]);
+
+  const voidItem = mapStockMovement(
+    {
+      id: 2,
+      product_id: 7,
+      movement_date: "2026-05-20T08:00:00.000Z",
+      movement_type: "receive",
+      qty_in: 2,
+      qty_out: 0,
+      ref_type: "sales",
+      ref_id: 12,
+      note: "Void sale: ลูกค้าขอยกเลิก",
+      created_by: "user-1",
+      products: { sku: "SKU001", name: "สีทาบ้าน" },
+    },
+    saleLines,
+    { id: "user-1", email: "cashier@example.com" },
+  );
+
+  const refundItem = mapStockMovement(
+    {
+      id: 3,
+      product_id: 7,
+      movement_date: "2026-05-20T09:00:00.000Z",
+      movement_type: "receive",
+      qty_in: 1,
+      qty_out: 0,
+      ref_type: "sales",
+      ref_id: 12,
+      note: "Refund sale: สินค้าชำรุด",
+      created_by: "user-1",
+      products: { sku: "SKU001", name: "สีทาบ้าน" },
+    },
+    saleLines,
+    { id: "user-1", email: "cashier@example.com" },
+  );
+
+  assert.equal(voidItem.type, "void_return");
+  assert.equal(voidItem.detail, "คืนสต๊อกจากยกเลิก: ลูกค้าขอยกเลิก");
+  assert.equal(voidItem.ref, "INV-20260520-001");
+  assert.equal(refundItem.type, "refund_return");
+  assert.equal(refundItem.detail, "คืนสต๊อกจากคืนเงิน: สินค้าชำรุด");
+  assert.equal(refundItem.ref, "INV-20260520-001");
+});
+
 test("mapPriceHistory summarizes only changed prices", () => {
   const detail = priceChangeDetail({
     old_retail_price: 100,
