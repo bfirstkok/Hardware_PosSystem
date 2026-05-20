@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { CalendarDays, Download, History, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { pageHref, paginationState, parsePage } from "@/lib/pagination.mjs";
 import {
   buildSaleLineLookup,
   mapPriceHistory,
@@ -88,6 +89,7 @@ const movementTypes = [
   { value: "adjustment", label: "ปรับยอดสต๊อก" },
   { value: "price_change", label: "แก้ไขราคา" },
 ];
+const PAGE_SIZE = 100;
 
 function bangkokDateParts(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -237,6 +239,7 @@ export default async function ProductHistoryPage({
     from?: string;
     to?: string;
     period?: string;
+    page?: string;
   }>;
 }) {
   const filters = await searchParams;
@@ -253,11 +256,19 @@ export default async function ProductHistoryPage({
   const selectedPeriod = periodOptions.some((option) => option.value === filters.period)
     ? (filters.period as Period)
     : "day";
+  const selectedPage = parsePage(filters.page);
   const selectedCustomRange = customRange(filters.from, filters.to);
   const range = selectedCustomRange ?? periodRange(selectedPeriod);
   const rangeLabel = formatRangeLabel(range.start, range.end, selectedCustomRange ? undefined : selectedPeriod);
   const fromDate = selectedCustomRange ? formatDateInput(range.start) : (filters.from ?? "");
   const toDate = selectedCustomRange ? formatDateInput(addDays(range.end, -1)) : (filters.to ?? "");
+  const paginationParams = {
+    period: selectedCustomRange ? undefined : selectedPeriod,
+    from: selectedCustomRange ? fromDate : undefined,
+    to: selectedCustomRange ? toDate : undefined,
+    product_id: hasProductFilter ? String(selectedProductId) : undefined,
+    type: selectedType !== "all" ? selectedType : undefined,
+  };
 
   const periodHref = (period: Period) => {
     const params = new URLSearchParams({ period });
@@ -268,43 +279,66 @@ export default async function ProductHistoryPage({
     return `/product-history?${params.toString()}`;
   };
 
-  let stockQuery = supabase
-    .from("stock_movements")
-    .select("id, product_id, movement_date, movement_type, qty_in, qty_out, ref_type, ref_id, note, created_by, products(sku, name)")
-    .gte("movement_date", range.start.toISOString())
-    .lt("movement_date", range.end.toISOString())
-    .order("movement_date", { ascending: false })
-    .limit(100);
+  function createStockQuery(selectColumns: string, options?: { count?: "exact"; head?: boolean }) {
+    let query = supabase
+      .from("stock_movements")
+      .select(selectColumns, options)
+      .gte("movement_date", range.start.toISOString())
+      .lt("movement_date", range.end.toISOString());
 
-  let priceQuery = supabase
-    .from("product_price_history")
-    .select(
-      "id, product_id, old_retail_price, new_retail_price, old_wholesale_price, new_wholesale_price, old_cost_price, new_cost_price, changed_by, changed_at, products(sku, name)",
-    )
-    .gte("changed_at", range.start.toISOString())
-    .lt("changed_at", range.end.toISOString())
-    .order("changed_at", { ascending: false })
-    .limit(100);
+    if (hasProductFilter) {
+      query = query.eq("product_id", selectedProductId);
+    }
+    if (selectedType === "receive" || selectedType === "sale") {
+      query = query.eq("movement_type", selectedType);
+    }
+    if (selectedType === "void_return" || selectedType === "refund_return") {
+      query = query.eq("movement_type", "receive").eq("ref_type", "sales");
+    }
 
-  if (hasProductFilter) {
-    stockQuery = stockQuery.eq("product_id", selectedProductId);
-    priceQuery = priceQuery.eq("product_id", selectedProductId);
+    return query;
   }
-  if (selectedType === "receive" || selectedType === "sale") {
-    stockQuery = stockQuery.eq("movement_type", selectedType);
+
+  function createPriceQuery(selectColumns: string, options?: { count?: "exact"; head?: boolean }) {
+    let query = supabase
+      .from("product_price_history")
+      .select(selectColumns, options)
+      .gte("changed_at", range.start.toISOString())
+      .lt("changed_at", range.end.toISOString());
+
+    if (hasProductFilter) {
+      query = query.eq("product_id", selectedProductId);
+    }
+
+    return query;
   }
-  if (selectedType === "void_return" || selectedType === "refund_return") {
-    stockQuery = stockQuery.eq("movement_type", "receive").eq("ref_type", "sales");
-  }
+
+  const stockSelect = "id, product_id, movement_date, movement_type, qty_in, qty_out, ref_type, ref_id, note, created_by, products(sku, name)";
+  const priceSelect =
+    "id, product_id, old_retail_price, new_retail_price, old_wholesale_price, new_wholesale_price, old_cost_price, new_cost_price, changed_by, changed_at, products(sku, name)";
+  const includeStock = selectedType !== "price_change";
+  const includePrice = selectedType === "all" || selectedType === "price_change";
+
+  const [stockCountResult, priceCountResult] = await Promise.all([
+    includeStock ? createStockQuery("id", { count: "exact", head: true }) : Promise.resolve({ count: 0, error: null }),
+    includePrice ? createPriceQuery("id", { count: "exact", head: true }) : Promise.resolve({ count: 0, error: null }),
+  ]);
+  const totalHistory = (stockCountResult.count ?? 0) + (priceCountResult.count ?? 0);
+  const pagination = paginationState({ page: selectedPage, pageSize: PAGE_SIZE, totalItems: totalHistory });
+
   const [{ data: productsData }, stockResult, priceResult] = await Promise.all([
     supabase.from("products").select("id, sku, name").eq("is_active", true).order("name"),
-    selectedType === "price_change" ? Promise.resolve({ data: [], error: null }) : stockQuery,
-    selectedType !== "all" && selectedType !== "price_change" ? Promise.resolve({ data: [], error: null }) : priceQuery,
+    includeStock
+      ? createStockQuery(stockSelect).order("movement_date", { ascending: false }).range(0, pagination.to)
+      : Promise.resolve({ data: [], error: null }),
+    includePrice
+      ? createPriceQuery(priceSelect).order("changed_at", { ascending: false }).range(0, pagination.to)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const products = (productsData ?? []) as ProductOption[];
-  const stockError = stockResult.error;
-  const priceError = priceResult.error;
+  const stockError = stockResult.error ?? stockCountResult.error;
+  const priceError = priceResult.error ?? priceCountResult.error;
   const stockRows = (stockResult.data ?? []) as unknown as StockMovementRow[];
   const saleStockRows = stockRows.filter((item) => item.ref_type === "sales" && item.ref_id);
   const saleIds = [...new Set(saleStockRows.map((item) => Number(item.ref_id)))];
@@ -329,7 +363,7 @@ export default async function ProductHistoryPage({
 
   const historyItems = [...stockMovements, ...priceChanges]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 100);
+    .slice(pagination.from, pagination.to + 1);
   const stockInTotal = historyItems.reduce((sum, item) => sum + item.qtyIn, 0);
   const stockOutTotal = historyItems.reduce((sum, item) => sum + item.qtyOut, 0);
   const priceChangeCount = historyItems.filter((item) => item.type === "price_change").length;
@@ -346,7 +380,7 @@ export default async function ProductHistoryPage({
             </div>
             <div className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm">
               <History className="h-4 w-4" aria-hidden="true" />
-              {historyItems.length.toLocaleString("th-TH")} รายการ
+              {totalHistory.toLocaleString("th-TH")} รายการ
             </div>
           </div>
 
@@ -358,7 +392,7 @@ export default async function ProductHistoryPage({
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-slate-950">{rangeLabel}</div>
-                  <div className="mt-1 text-xs text-slate-500">แสดงสูงสุด 100 รายการ</div>
+                  <div className="mt-1 text-xs text-slate-500">แสดงหน้า {pagination.currentPage.toLocaleString("th-TH")} จาก {pagination.pageCount.toLocaleString("th-TH")}</div>
                 </div>
               </div>
               <div className="grid grid-cols-4 rounded-md border border-slate-300 bg-white p-1">
@@ -463,7 +497,7 @@ export default async function ProductHistoryPage({
           </section>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="จำนวนรายการ" value={`${historyItems.length.toLocaleString("th-TH")} รายการ`} />
+            <MetricCard label="จำนวนรายการ" value={`${totalHistory.toLocaleString("th-TH")} รายการ`} />
             <MetricCard label="รับเข้า" value={`${quantity(stockInTotal)} ชิ้น`} />
             <MetricCard label="ขายออก" value={`${quantity(stockOutTotal)} ชิ้น`} emphasis />
             <MetricCard
@@ -532,6 +566,16 @@ export default async function ProductHistoryPage({
                 )}
               </tbody>
             </table>
+            <PaginationBar
+              currentPage={pagination.currentPage}
+              pageCount={pagination.pageCount}
+              pageSize={PAGE_SIZE}
+              totalItems={totalHistory}
+              previousHref={pageHref("/product-history", paginationParams, pagination.currentPage - 1)}
+              nextHref={pageHref("/product-history", paginationParams, pagination.currentPage + 1)}
+              hasPrevious={pagination.hasPrevious}
+              hasNext={pagination.hasNext}
+            />
           </div>
         </div>
       </main>
@@ -545,6 +589,56 @@ function MetricCard({ label, value, emphasis = false }: { label: string; value: 
       <div className="text-sm text-slate-500">{label}</div>
       <div className={`mt-2 text-xl font-semibold ${emphasis ? "text-emerald-800" : "text-slate-950"}`}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function PaginationBar({
+  currentPage,
+  pageCount,
+  pageSize,
+  totalItems,
+  previousHref,
+  nextHref,
+  hasPrevious,
+  hasNext,
+}: {
+  currentPage: number;
+  pageCount: number;
+  pageSize: number;
+  totalItems: number;
+  previousHref: string;
+  nextHref: string;
+  hasPrevious: boolean;
+  hasNext: boolean;
+}) {
+  const startItem = totalItems ? (currentPage - 1) * pageSize + 1 : 0;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-slate-500">
+        แสดง {startItem.toLocaleString("th-TH")}-{endItem.toLocaleString("th-TH")} จาก {totalItems.toLocaleString("th-TH")} รายการ
+      </div>
+      <div className="flex items-center gap-2">
+        {hasPrevious ? (
+          <Link href={previousHref} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
+            ก่อนหน้า
+          </Link>
+        ) : (
+          <span className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium text-slate-300">ก่อนหน้า</span>
+        )}
+        <span className="px-2 text-slate-500">
+          หน้า {currentPage.toLocaleString("th-TH")} / {pageCount.toLocaleString("th-TH")}
+        </span>
+        {hasNext ? (
+          <Link href={nextHref} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
+            ถัดไป
+          </Link>
+        ) : (
+          <span className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium text-slate-300">ถัดไป</span>
+        )}
       </div>
     </div>
   );
