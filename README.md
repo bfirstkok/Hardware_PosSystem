@@ -67,6 +67,7 @@
 | **Authentication** | Email/magic link, SSR session management | ✅ |
 | **RLS Security** | Row-Level Policies on all tables | ✅ |
 | **Atomic Transactions** | `complete_pos_sale()`, `receive_stock()` RPC | ✅ |
+| **Device Session Control** | Auto device registration, approve/block/revoke, audit logs | ✅ |
 
 ### 🔄 กำลังพัฒนา & วางแผน
 
@@ -84,6 +85,66 @@
 ---
 
 ## 🆕 อัปเดตล่าสุด
+
+### Device Session Control, IP Masking และ Access Enforcement
+
+- เพิ่มระบบบริหารอุปกรณ์ที่เข้าสู่ระบบจริงผ่าน Supabase:
+  - ตาราง `device_sessions`
+  - ตาราง `device_audit_logs`
+  - route `/devices`
+  - route `/devices/logs`
+- เมื่อ user login แล้วเปิดระบบ หน้า `/devices` จะ sync เครื่องปัจจุบันเข้า DB:
+  - `device_key`
+  - `device_name`
+  - `user_email`
+  - `ip_address`
+  - `browser`
+  - `os`
+  - `last_seen_at`
+  - `status`
+- เพิ่มปุ่มจัดการอุปกรณ์:
+  - `อนุมัติ` -> `status = online`, `trusted = true`, `is_new_device = false`
+  - `ปิดกั้น` -> `status = blocked`, `trusted = false`, `is_new_device = false`
+  - `ยกเลิก` -> `status = revoked`, `is_new_device = false`
+- เพิ่ม enforcement ใน `AppShell`:
+  - ถ้าอุปกรณ์เป็น `blocked` หรือ `revoked` ระบบจะ `supabase.auth.signOut()`
+  - redirect ไป `/login?device=blocked` หรือ `/login?device=revoked`
+  - หน้า login แสดงเหตุผลให้ผู้ใช้รู้
+- เพิ่มหน้า `/devices/logs` สำหรับเจ้าของร้านดู log:
+  - เวลา
+  - action
+  - email
+  - ชื่ออุปกรณ์
+  - IP เต็ม
+  - location
+  - browser / OS
+  - status
+- หน้าหลัก `/devices` mask IP เพื่อลดการเปิดเผยข้อมูลอ่อนไหว เช่น `192.168.xxx.xxx`
+- เพิ่ม audit metadata ตอนพบอุปกรณ์ใหม่ เช่น `ip_address`, `browser`, `os`
+
+Migration ที่เกี่ยวข้อง:
+
+```text
+supabase/migrations/202605220001_device_sessions.sql
+```
+
+ไฟล์หลักที่เกี่ยวข้อง:
+
+```text
+src/app/devices/page.tsx
+src/app/devices/devices-client.tsx
+src/app/devices/actions.ts
+src/app/devices/logs/page.tsx
+src/lib/device-access-actions.ts
+src/components/app-shell.tsx
+src/app/login/page.tsx
+```
+
+Quality notes:
+
+- Security: IP เต็มแสดงเฉพาะหน้า log, หน้าหลัก mask IP, action ต้องผ่าน Supabase Auth
+- Performance: `/devices` จำกัด query ล่าสุด `100` rows และ `/devices/logs` จำกัด `200` rows พร้อม index ตาม status/last_seen/log time
+- Testing: ตรวจด้วย `npm run lint`, `npm run build`, `npm test`
 
 ### Sales/Product History UI, Audit และ Pagination
 
@@ -127,6 +188,7 @@ supabase/migrations/202605190001_product_price_history.sql
 supabase/migrations/202605190002_product_history_performance.sql
 supabase/migrations/202605200001_sales_history_integrity.sql
 supabase/migrations/202605200002_void_refund_functions.sql
+supabase/migrations/202605220001_device_sessions.sql
 ```
 
 Quality notes:
@@ -159,7 +221,7 @@ Quality notes:
 
 - เพิ่ม `src/lib/navigation-loading.test.mjs` เพื่อกัน regression ว่า data-heavy routes ต้องมี `loading.tsx`
 - เพิ่ม `src/lib/product-history.test.mjs` ครอบคลุม sale reference, unit price, และ price-change mapping
-- Test suite ปัจจุบันมี 12 tests และรันด้วย `node --test`
+- Test suite ปัจจุบันมี 22 tests และรันด้วย `node --test`
 - คำสั่งตรวจหลักที่ใช้:
 
 ```bash
@@ -238,11 +300,17 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 # ตัวเลือก A: ใช้ Supabase Dashboard
 # 1. เปิด SQL Editor ในโปรเจกต์
 # 2. วาง supabase/schema.sql
-# 3. รัน
+# 3. รัน migrations เพิ่มเติมตามลำดับใน supabase/migrations/
 
 # ตัวเลือก B: ใช้ Supabase CLI
 supabase link --project-ref your_project_id
 supabase db push
+```
+
+Migration สำคัญสำหรับระบบอุปกรณ์/session:
+
+```text
+supabase/migrations/202605220001_device_sessions.sql
 ```
 
 ### 4️⃣ รัน Development Server
@@ -279,6 +347,10 @@ Hardware_PosSystem/
 │   │   ├── products/loading.tsx      # Loading skeleton
 │   │   ├── stock/page.tsx            # 📥 Stock Management
 │   │   ├── stock/loading.tsx         # Loading skeleton
+│   │   ├── devices/page.tsx          # 🔐 Device sessions
+│   │   ├── devices/actions.ts        # Device server actions
+│   │   ├── devices/devices-client.tsx
+│   │   ├── devices/logs/page.tsx     # Device access logs
 │   │   │
 │   │   ├── barcodes/page.tsx         # 🏷️ Barcode Printing
 │   │   ├── barcodes/loading.tsx      # Loading skeleton
@@ -296,6 +368,7 @@ Hardware_PosSystem/
 │   │   └── page-loading.tsx          # Shared route loading skeleton
 │   │
 │   └── lib/
+│       ├── device-access-actions.ts  # Block/revoke guard
 │       ├── navigation-loading.test.mjs
 │       └── supabase/
 │           ├── client.ts             # Browser client
@@ -304,7 +377,8 @@ Hardware_PosSystem/
 ├── supabase/
 │   ├── schema.sql                    # Database schema
 │   └── migrations/
-│       └── 20260512_product_images.sql
+│       ├── 20260512_product_images.sql
+│       └── 202605220001_device_sessions.sql
 │
 ├── public/                           # Static assets
 ├── .env.local                        # Environment variables
@@ -547,6 +621,24 @@ npx tsc --noEmit
 supabase db pull
 ```
 
+### Device Security
+
+- ใช้ `/devices` เพื่ออนุมัติ/ปิดกั้น/ยกเลิก session ของอุปกรณ์
+- ใช้ `/devices/logs` เพื่อตรวจย้อนหลังว่าใครเข้าใช้งานจากอุปกรณ์/IP ใด
+- หน้าหลักแสดง IP แบบ mask; หน้า log แสดง IP เต็มสำหรับเจ้าของร้าน/ผู้ดูแล
+- ถ้าเครื่องถูก `blocked` หรือ `revoked`, `AppShell` จะ sign out และ redirect กลับ `/login`
+- ปลดบล็อกชั่วคราวผ่าน SQL ได้:
+
+```sql
+update public.device_sessions
+set
+  status = 'online',
+  trusted = true,
+  is_new_device = false,
+  updated_at = now()
+where id = 'SESSION_ID';
+```
+
 ### Deployment
 
 - **Vercel:** Recommended (integrated with Next.js)
@@ -609,12 +701,40 @@ npm run dev
 | **Language** | TypeScript |
 | **Framework** | Next.js 16 |
 | **Database** | PostgreSQL (Supabase) |
-| **Core Tables** | 7 |
+| **Core Tables** | 9+ |
 | **RPC Functions** | 2 |
-| **Implemented Pages** | 5 |
+| **Implemented Pages** | 7+ |
 | **Stubbed Pages** | 18 |
-| **Tests** | 9 |
+| **Tests** | 22 |
 | **Code Quality** | B+ |
+
+---
+
+## 🧭 Handoff Notes
+
+งานล่าสุดที่ทำ:
+
+- ทำระบบ `device_sessions` และ `device_audit_logs`
+- เพิ่มหน้า `/devices` สำหรับอนุมัติ/ปิดกั้น/ยกเลิกอุปกรณ์
+- เพิ่มหน้า `/devices/logs` สำหรับดู log การเข้าใช้งาน
+- เพิ่ม client guard ใน `AppShell` เพื่อ sign out เครื่องที่ถูก `blocked` หรือ `revoked`
+- เพิ่มข้อความแจ้งเหตุผลใน `/login?device=blocked|revoked`
+- เพิ่ม IP masking ในหน้าหลักและเก็บ IP เต็มใน log
+
+งานที่ควรทำต่อ:
+
+- เพิ่มปุ่ม `ปลดบล็อก` ใน UI แทนการใช้ SQL
+- เพิ่ม server-side guard ใน server actions/API ทุกจุด โดยอ่าน `hardware_pos_device_key`
+- เพิ่ม role/admin check สำหรับ action อนุมัติ/ปิดกั้น/ยกเลิก
+- เพิ่ม automated tests สำหรับ pure logic ของ device access และ IP masking
+
+Skills แนะนำสำหรับ session ถัดไป:
+
+```text
+security-and-hardening
+test-driven-development
+performance-optimization
+```
 
 ---
 
@@ -654,6 +774,6 @@ Built with ❤️ for small businesses
 
 ---
 
-**Last Updated:** May 17, 2026  
+**Last Updated:** May 22, 2026  
 **Version:** 0.1.0 (Beta)  
 **Status:** 🟡 Active Development

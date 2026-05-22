@@ -1,16 +1,24 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const deviceReason = searchParams.get("device");
+  const deviceMessage =
+    deviceReason === "blocked"
+      ? "อุปกรณ์นี้ถูกปิดกั้น ต้องให้ผู้ดูแลอนุมัติก่อน"
+      : deviceReason === "revoked"
+        ? "session ของอุปกรณ์นี้ถูกยกเลิกแล้ว กรุณาเข้าสู่ระบบใหม่"
+        : "";
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,6 +77,12 @@ export default function LoginPage() {
           />
         </label>
 
+        {deviceMessage ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            {deviceMessage}
+          </p>
+        ) : null}
+
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
         <button
@@ -80,5 +94,13 @@ export default function LoginPage() {
         </button>
       </form>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
