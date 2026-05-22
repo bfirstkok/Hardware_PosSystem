@@ -96,6 +96,7 @@ export async function syncCurrentDevice(payload: CurrentDevicePayload) {
   if (!error && data && !existingDevice) {
     await writeAudit(data.id, user.id, "พบอุปกรณ์ใหม่", `${row.device_name} (${row.user_email})`, {
       browser: row.browser,
+      ip_address: row.ip_address,
       os: row.os,
     });
   }

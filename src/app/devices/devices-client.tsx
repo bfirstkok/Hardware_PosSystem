@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -87,10 +88,14 @@ function detectPlatformName() {
 function currentDeviceKey() {
   const key = "hardware-pos-current-device-id";
   const storedId = window.localStorage.getItem(key);
-  if (storedId) return storedId;
+  if (storedId) {
+    document.cookie = `hardware_pos_device_key=${encodeURIComponent(storedId)}; path=/; max-age=31536000; samesite=lax`;
+    return storedId;
+  }
 
   const nextId = `CURRENT-${crypto.randomUUID()}`;
   window.localStorage.setItem(key, nextId);
+  document.cookie = `hardware_pos_device_key=${encodeURIComponent(nextId)}; path=/; max-age=31536000; samesite=lax`;
   return nextId;
 }
 
@@ -117,6 +122,14 @@ function matchesSearch(session: DeviceSessionView, query: string) {
     .join(" ")
     .toLowerCase()
     .includes(normalizedQuery);
+}
+
+function maskIpAddress(value: string) {
+  if (!value || value === "-") return "-";
+  const ipv4Parts = value.split(".");
+  if (ipv4Parts.length === 4) return `${ipv4Parts[0]}.${ipv4Parts[1]}.xxx.xxx`;
+  if (value.includes(":")) return `${value.split(":").slice(0, 2).join(":")}:xxxx`;
+  return value;
 }
 
 export function DevicesClient({
@@ -178,9 +191,18 @@ export function DevicesClient({
             <p className="text-sm text-slate-500">บริหาร</p>
             <h1 className="mt-1 text-2xl font-semibold">อุปกรณ์ที่เข้าสู่ระบบ</h1>
           </div>
-          <div className="inline-flex h-10 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white shadow-sm">
-            <MonitorSmartphone size={17} />
-            {isPending ? "กำลังบันทึกเครื่องนี้" : "บันทึกเครื่องนี้อัตโนมัติ"}
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/devices/logs"
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Clock3 size={16} />
+              ดู log
+            </Link>
+            <div className="inline-flex h-10 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white shadow-sm">
+              <MonitorSmartphone size={17} />
+              {isPending ? "กำลังบันทึกเครื่องนี้" : "บันทึกเครื่องนี้อัตโนมัติ"}
+            </div>
           </div>
         </div>
 
@@ -197,7 +219,7 @@ export function DevicesClient({
           <div className="font-semibold">วิธีดูสำหรับเจ้าของร้าน</div>
           <div className="mt-2 grid gap-2 md:grid-cols-3">
             <div>1. ระบบเพิ่มเครื่องที่ล็อกอินเข้ามาให้เอง</div>
-            <div>2. ดู email/ไอดี, เวลา, browser, IP แล้วเลือกสถานะ</div>
+            <div>2. หน้าหลักซ่อน IP บางส่วน ดู IP เต็มได้ในหน้า log</div>
             <div>3. ใช้ปุ่ม “อนุมัติ”, “ปิดกั้น”, “ยกเลิก” ที่แถวอุปกรณ์</div>
           </div>
         </section>
@@ -330,7 +352,7 @@ function DeviceRow({ session }: { session: DeviceSessionView }) {
         <div className="mt-1 text-xs text-slate-500">{session.branch}</div>
       </td>
       <td className="px-5 py-4">
-        <div className="font-mono text-sm text-slate-950">{session.ipAddress}</div>
+        <div className="font-mono text-sm text-slate-950">{maskIpAddress(session.ipAddress)}</div>
         <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
           <MapPin size={13} />
           {session.location}
