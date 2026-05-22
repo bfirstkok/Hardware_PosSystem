@@ -1,8 +1,8 @@
 "use client";
 
 import Link, { useLinkStatus } from "next/link";
-import { usePathname } from "next/navigation";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BadgePercent,
@@ -29,6 +29,8 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
+import { checkDeviceAccess } from "@/lib/device-access-actions";
+import { createClient } from "@/lib/supabase/client";
 
 const sidebarAccent = {
   groupActive: "border-slate-900 bg-slate-900 text-white shadow-sm",
@@ -194,6 +196,8 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const router = useRouter();
+  const [accessMessage, setAccessMessage] = useState("");
 
   // บันทึก scroll position ของ sidebar เมื่อ scroll
   useLayoutEffect(() => {
@@ -219,8 +223,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function verifyDeviceAccess() {
+      const deviceKey = localStorage.getItem("hardware-pos-current-device-id");
+      if (!deviceKey) return;
+
+      const result = await checkDeviceAccess(deviceKey);
+      if (cancelled || result.allowed) return;
+
+      setAccessMessage(result.message);
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.replace(`/login?device=${encodeURIComponent(result.reason)}`);
+      router.refresh();
+    }
+
+    verifyDeviceAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
+      {accessMessage ? (
+        <div className="fixed inset-x-0 top-0 z-50 border-b border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">
+          {accessMessage} กำลังออกจากระบบ
+        </div>
+      ) : null}
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 bg-slate-100 px-5">
           <div className="flex size-10 items-center justify-center rounded-md bg-slate-900 text-white">
