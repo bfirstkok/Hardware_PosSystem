@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { getDefaultPathForRole, isStaffRole } from "@/lib/permissions";
+import { parseEmployeeLoginPayload } from "@/lib/employee-login-validation";
+import { getPostLoginPathForRole, isStaffRole } from "@/lib/permissions";
 
 type StaffLoginRow = {
   auth_email: string;
@@ -144,16 +145,17 @@ async function signInAndCreateResponse({
 }
 
 export async function POST(request: NextRequest) {
-  const { employeeCode, password } = (await request.json()) as {
-    employeeCode?: string;
-    password?: string;
-  };
-  const loginId = employeeCode?.trim() ?? "";
-  const normalizedEmployeeCode = loginId.toUpperCase();
+  const body = await request.json().catch(() => null);
+  const payload = parseEmployeeLoginPayload(body);
 
-  if (!loginId || !password) {
+  if (!payload) {
     return NextResponse.json({ error: "กรอกรหัสพนักงานและรหัสผ่าน" }, { status: 400 });
   }
+
+  const { employeeCode, password, nextPath } = payload;
+  const loginId = employeeCode;
+  const normalizedEmployeeCode = loginId.toUpperCase();
+  const requestedNextPath = nextPath;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -170,7 +172,7 @@ export async function POST(request: NextRequest) {
       supabaseAnonKey,
       email: loginId.toLowerCase(),
       password,
-      defaultPath: "/dashboard",
+      defaultPath: getPostLoginPathForRole("owner", requestedNextPath),
       role: "owner",
     });
 
@@ -195,7 +197,7 @@ export async function POST(request: NextRequest) {
       supabaseAnonKey,
       email: signIn.user.email,
       password,
-      defaultPath: getDefaultPathForRole(role),
+      defaultPath: getPostLoginPathForRole(role, requestedNextPath),
       role,
     }).then(({ response }) => response);
   }
@@ -225,7 +227,7 @@ export async function POST(request: NextRequest) {
     supabaseAnonKey,
     email: staff.auth_email,
     password,
-    defaultPath: staff.role === "cashier" ? "/me" : getDefaultPathForRole(staff.role),
+    defaultPath: getPostLoginPathForRole(staff.role, requestedNextPath),
     role: staff.role,
   });
 

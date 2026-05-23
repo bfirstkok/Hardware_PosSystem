@@ -68,11 +68,13 @@ export function hasMinimumRole(role, minRole) {
 }
 
 export function canAccessRoute(role, pathname) {
+  const routePathname = pathname.split(/[?#]/, 1)[0] || "/";
   const matchedAccess = routeAccess
-    .filter((access) => pathname === access.prefix || pathname.startsWith(`${access.prefix}/`))
+    .filter((access) => routePathname === access.prefix || routePathname.startsWith(`${access.prefix}/`))
     .sort((a, b) => b.prefix.length - a.prefix.length)[0];
 
   if (!matchedAccess) return true;
+  if (!isStaffRole(role)) return false;
   return hasMinimumRole(role, matchedAccess.minRole);
 }
 
@@ -84,4 +86,14 @@ export function canPerformAction(role, action) {
 
 export function getDefaultPathForRole(role) {
   return defaultRolePath[normalizeRole(role)];
+}
+
+export function getPostLoginPathForRole(role, requestedPath) {
+  const fallbackPath = getDefaultPathForRole(role);
+
+  if (!requestedPath || !requestedPath.startsWith("/") || requestedPath.startsWith("//")) {
+    return fallbackPath;
+  }
+
+  return canAccessRoute(role, requestedPath) ? requestedPath : fallbackPath;
 }

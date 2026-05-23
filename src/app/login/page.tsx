@@ -3,6 +3,7 @@
 import { FormEvent, Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { LogIn } from "lucide-react";
+import { normalizeLocalNextPath } from "@/lib/protected-routes";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -12,6 +13,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const deviceReason = searchParams.get("device");
   const authReason = searchParams.get("auth");
+  const nextPath = normalizeLocalNextPath(searchParams.get("next"));
   const deviceMessage =
     deviceReason === "blocked"
       ? "อุปกรณ์นี้ถูกปิดกั้น ต้องให้ผู้ดูแลอนุมัติก่อน"
@@ -38,6 +40,7 @@ function LoginForm() {
       body: JSON.stringify({
         employeeCode,
         password,
+        nextPath,
       }),
     });
 

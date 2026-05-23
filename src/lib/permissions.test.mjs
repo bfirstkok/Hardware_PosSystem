@@ -4,6 +4,7 @@ import {
   canAccessRoute,
   canPerformAction,
   getDefaultPathForRole,
+  getPostLoginPathForRole,
   hasMinimumRole,
 } from "./permissions.mjs";
 
@@ -21,6 +22,19 @@ test("cashier is limited to POS, stock basics, and own sales history surface", (
   assert.equal(canAccessRoute("cashier", "/products"), false);
   assert.equal(canAccessRoute("cashier", "/reports"), false);
   assert.equal(canAccessRoute("cashier", "/employees"), false);
+});
+
+test("missing or invalid roles cannot access protected routes", () => {
+  assert.equal(canAccessRoute(null, "/pos"), false);
+  assert.equal(canAccessRoute(undefined, "/stock"), false);
+  assert.equal(canAccessRoute("unknown", "/dashboard"), false);
+  assert.equal(canAccessRoute(null, "/login"), true);
+});
+
+test("route access ignores query strings and hashes when matching protected paths", () => {
+  assert.equal(canAccessRoute("cashier", "/dashboard?tab=today"), false);
+  assert.equal(canAccessRoute("cashier", "/products#form"), false);
+  assert.equal(canAccessRoute("manager", "/dashboard?tab=today"), true);
 });
 
 test("manager can manage operational modules but not owner-only branch admin", () => {
@@ -42,4 +56,12 @@ test("default path follows role", () => {
   assert.equal(getDefaultPathForRole("cashier"), "/pos");
   assert.equal(getDefaultPathForRole("manager"), "/dashboard");
   assert.equal(getDefaultPathForRole("owner"), "/dashboard");
+});
+
+test("post-login path only allows local routes allowed by role", () => {
+  assert.equal(getPostLoginPathForRole("cashier", "/sales-history"), "/sales-history");
+  assert.equal(getPostLoginPathForRole("cashier", "/dashboard"), "/pos");
+  assert.equal(getPostLoginPathForRole("cashier", "/dashboard?tab=today"), "/pos");
+  assert.equal(getPostLoginPathForRole("manager", "/dashboard"), "/dashboard");
+  assert.equal(getPostLoginPathForRole("manager", "https://evil.example"), "/dashboard");
 });

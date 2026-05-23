@@ -122,15 +122,16 @@ function Sidebar({
   role: StaffRole | null;
 }) {
   const pathname = usePathname();
+  const visibleRole = role ?? "cashier";
   const visibleGroups = useMemo(
     () =>
       navGroups
         .map((group) => ({
           ...group,
-          items: role ? group.items.filter((item) => canAccessRoute(role, item.href)) : group.items,
+          items: group.items.filter((item) => canAccessRoute(visibleRole, item.href)),
         }))
         .filter((group) => group.items.length > 0),
-    [role]
+    [visibleRole]
   );
   const activeGroupLabel = useMemo(
     () => visibleGroups.find((group) => group.items.some((item) => item.href === pathname))?.label,
