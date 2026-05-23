@@ -48,8 +48,11 @@ test("critical actions follow first-phase permission rules", () => {
   assert.equal(canPerformAction("cashier", "stock.adjust_basic"), true);
   assert.equal(canPerformAction("cashier", "sales.refund"), false);
   assert.equal(canPerformAction("manager", "reports.export"), true);
+  assert.equal(canPerformAction("manager", "staff.update_profile"), true);
+  assert.equal(canPerformAction("manager", "staff.archive"), true);
   assert.equal(canPerformAction("manager", "products.delete"), false);
   assert.equal(canPerformAction("owner", "products.delete"), true);
+  assert.equal(canPerformAction("cashier", "staff.update_profile"), false);
 });
 
 test("default path follows role", () => {

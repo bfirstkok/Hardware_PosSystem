@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { DevicesClient, type DeviceAuditView, type DeviceSessionView } from "./devices-client";
 
 type DeviceSessionRow = {
@@ -68,12 +68,8 @@ function mapAudit(row: DeviceAuditRow): DeviceAuditView {
 }
 
 export default async function DevicesPage() {
+  const staff = await requireRouteAccess("/devices");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const [{ data: sessionData, error: sessionError }, { data: auditData, error: auditError }] = await Promise.all([
     supabase
@@ -94,8 +90,9 @@ export default async function DevicesPage() {
 
   return (
     <DevicesClient
-      currentUserEmail={userData.user.email ?? null}
-      currentUserId={userData.user.id}
+      currentStaff={staff}
+      currentUserEmail={staff.email}
+      currentUserId={staff.user_id}
       sessions={sessionError ? [] : ((sessionData ?? []) as DeviceSessionRow[]).map(mapSession)}
       auditLog={auditError ? [] : ((auditData ?? []) as DeviceAuditRow[]).map(mapAudit)}
       dbError={dbError}

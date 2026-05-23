@@ -98,13 +98,28 @@
   - `src/lib/permissions.test.mjs`
 - เพิ่ม employee login จริง:
   - route `src/app/auth/employee-login/route.ts`
-  - login ด้วย `employee_code` เช่น `EMP002` หรือ email owner เดิม
+  - login ด้วย `employee_code` เช่น `CAS001`, `MGR001`, `OWN001` หรือ email owner เดิม
   - ใช้ `SUPABASE_SERVICE_ROLE_KEY` เฉพาะฝั่ง server เพื่อ map `employee_code -> auth_email`
   - validate payload ก่อน login และ reject malformed/oversized input ด้วย `400`
+- ปรับระบบรหัสพนักงานใหม่ตาม role:
+  - `cashier` -> `CAS001`, `CAS002`, ...
+  - `manager` -> `MGR001`, `MGR002`, ...
+  - `owner` -> `OWN001`, `OWN002`, ...
+  - รหัส legacy เช่น `ADMIN001`, `EMP001`, `OWNER001` ยังใช้ได้ ไม่ถูกลบหรือ rewrite
+  - helper ที่เกี่ยวข้อง: `src/lib/staff-code.ts`, `src/lib/staff-code.mjs`, `src/lib/staff-code.test.mjs`
+- ปรับหน้า `/employees` ให้ใช้ข้อมูลจริง:
+  - แสดงรายชื่อจาก `staff_profiles` ผ่าน server-only admin client หลังผ่าน `requireRouteAccess("/employees")`
+  - `owner` เห็นทุก role, `manager` เห็นเฉพาะ `cashier`
+  - หัวข้อหน้าเหลือเฉพาะที่ใช้จริง: `เพิ่มพนักงาน`, `รายชื่อพนักงาน`, `บทบาท/สิทธิ์`
 - เพิ่ม protected route Proxy สำหรับ Next.js 16:
   - `src/proxy.ts`
   - ถ้ายังไม่ login แล้วเข้า `/pos`, `/dashboard`, `/sales-history`, `/stock` ฯลฯ จะ redirect ไป `/login?auth=no-session&next=...`
   - `next` path ถูก sanitize ให้เป็น local path เท่านั้น ป้องกัน open redirect
+- เพิ่ม server-side role guard ใน protected pages:
+  - `ModulePage` รับ `pathname` แล้วเรียก `requireRouteAccess(pathname)` ก่อน render
+  - หน้า static/stub เช่น `/reports`, `/branches`, `/customers`, `/documents`, `/expenses`, `/points`, `/suppliers` ถูกกันสิทธิ์จริง
+  - หน้าจริงเช่น `/products`, `/stock`, `/sales-history`, `/product-history`, `/barcodes`, `/devices`, `/promotions`, `/discounts` ใช้ `requireRouteAccess(...)`
+  - server actions สำคัญเช็ค `requireActionAccess(...)` เช่น product create/update/delete, stock receive, device approve/block/revoke
 - แก้หน้าแรก:
   - ปุ่ม `เข้าสู่ระบบ POS` ไป `/pos`
   - ปุ่ม `Dashboard` ไป `/dashboard`
@@ -116,6 +131,7 @@
 - เพิ่ม tests:
   - `src/lib/protected-routes.test.mjs`
   - `src/lib/employee-login-validation.test.mjs`
+  - `src/lib/staff-code.test.mjs`
   - permission regression สำหรับ invalid role และ post-login redirect ตาม role
 
 Migration ที่เกี่ยวข้อง:
@@ -127,7 +143,7 @@ supabase/seed_staff_mockup.sql
 
 Quality notes:
 
-- Security: protected route guard ทำงานก่อน render, login redirect sanitize `next`, invalid/null role เข้า protected route ไม่ได้
+- Security: protected route guard ทำงานก่อน render, server-side role guard ครอบคลุม module pages, login redirect sanitize `next`, invalid/null role เข้า protected route ไม่ได้
 - Performance: Proxy เช็คเฉพาะ route ที่อยู่ใน protected list; public/static route ไม่เรียก Supabase Auth
 - Testing: ตรวจด้วย `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm audit --audit-level=high`
 
@@ -567,8 +583,8 @@ Security note:
 ### Current Status: ✅ Basic Test Suite
 
 - Uses Node.js built-in test runner
-- Current suite: 35 tests
-- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, navigation loading regression, staff permission, protected route redirect, and employee login payload validation
+- Current suite: 37 tests
+- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, navigation loading regression, staff permission, protected route redirect, employee login payload validation, and staff code generation
 
 ### Run Tests
 
@@ -775,21 +791,20 @@ npm run dev
 
 งานล่าสุดที่ทำ:
 
-- ทำระบบ `device_sessions` และ `device_audit_logs`
-- เพิ่มหน้า `/devices` สำหรับอนุมัติ/ปิดกั้น/ยกเลิกอุปกรณ์
-- เพิ่มหน้า `/devices/logs` สำหรับดู log การเข้าใช้งาน
-- เพิ่ม client guard ใน `AppShell` เพื่อ sign out เครื่องที่ถูก `blocked` หรือ `revoked`
-- เพิ่มข้อความแจ้งเหตุผลใน `/login?device=blocked|revoked`
-- เพิ่ม IP masking ในหน้าหลักและเก็บ IP เต็มใน log
+- เพิ่ม server-side role guard ให้ protected pages และ stub modules ผ่าน `requireRouteAccess(...)`
+- ปรับ `ModulePage` ให้รับ `pathname` และกันสิทธิ์ก่อน render
+- ปรับ `/employees` ให้แสดงรายชื่อจาก `staff_profiles` จริงผ่าน server-only admin client
+- ปรับหัวข้อหน้า `/employees` เหลือเฉพาะ `เพิ่มพนักงาน`, `รายชื่อพนักงาน`, `บทบาท/สิทธิ์`
+- เพิ่มระบบรหัสพนักงานใหม่ตาม role: `CAS###`, `MGR###`, `OWN###`
+- เพิ่ม tests สำหรับ staff code generation และอัปเดต suite เป็น 37 tests
 
 งานที่ควรทำต่อ:
 
 - เพิ่มปุ่ม `ปลดบล็อก` ใน UI แทนการใช้ SQL
-- เพิ่ม server-side guard ใน server actions/API ทุกจุด โดยอ่าน `hardware_pos_device_key`
-- เพิ่ม role/admin check สำหรับ action อนุมัติ/ปิดกั้น/ยกเลิก
 - เพิ่ม automated tests สำหรับ pure logic ของ device access และ IP masking
-- เพิ่ม server guard ให้ static placeholder modules ที่ยังเป็น stub ถ้าต้องการ enforce role ลึกกว่าระดับ Proxy
 - เพิ่ม UI reset password / temporary password flow สำหรับพนักงานจริง
+- เพิ่ม filter/search จริงในหน้า `/employees`
+- เพิ่ม pagination ใน `/employees` ถ้าจำนวนพนักงานเยอะ
 
 Skills แนะนำสำหรับ session ถัดไป:
 
@@ -797,6 +812,7 @@ Skills แนะนำสำหรับ session ถัดไป:
 security-and-hardening
 test-driven-development
 performance-optimization
+frontend-ui-engineering
 ```
 
 ---
@@ -837,7 +853,7 @@ Built with ❤️ for small businesses
 
 ---
 
-**Last Updated:** May 22, 2026  
+**Last Updated:** May 23, 2026  
 **Staff Access Update:** May 23, 2026  
 **Version:** 0.1.0 (Beta)  
 **Status:** 🟡 Active Development

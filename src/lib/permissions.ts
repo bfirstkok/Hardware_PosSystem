@@ -69,8 +69,10 @@ export const actionAccess = {
   "sales.refund": "manager",
   "reports.export": "manager",
   "staff.invite": "manager",
+  "staff.update_profile": "manager",
   "staff.update_role": "owner",
   "staff.suspend": "manager",
+  "staff.archive": "manager",
   "device.revoke": "manager",
 } as const satisfies Record<string, StaffRole>;
 

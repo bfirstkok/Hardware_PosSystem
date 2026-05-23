@@ -3,6 +3,7 @@ import { ModulePage } from "@/components/module-page";
 export default function PosDevicesPage() {
   return (
     <ModulePage
+      pathname="/pos-devices"
       section="บริหาร"
       title="เครื่อง POS"
       description="จัดการเครื่องขายหน้าร้าน เครื่องพิมพ์ใบเสร็จ ลิ้นชักเงิน และเครื่องสแกน"

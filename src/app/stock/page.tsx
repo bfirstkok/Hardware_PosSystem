@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { AppShell } from "@/components/app-shell";
+import { requireActionAccess, requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type StockMovementRow = {
@@ -53,12 +54,8 @@ function noteField(formData: FormData) {
 async function receiveStock(formData: FormData) {
   "use server";
 
+  await requireActionAccess("stock.adjust_basic");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const { error } = await supabase.rpc("receive_stock", {
     payload: {
@@ -83,12 +80,8 @@ export default async function StockPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const notice = await searchParams;
+  const staff = await requireRouteAccess("/stock");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const [{ data }, { data: productData }] = await Promise.all([
     supabase
@@ -107,7 +100,7 @@ export default async function StockPage({
   const products = (productData ?? []) as ProductOption[];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <p className="text-sm text-slate-500">ประวัติสินค้าเข้าออกล่าสุด</p>
         <h1 className="mt-1 text-2xl font-semibold">Stock</h1>

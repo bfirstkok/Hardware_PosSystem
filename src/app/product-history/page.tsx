@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { CalendarDays, Download, History, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { pageHref, paginationState, parsePage } from "@/lib/pagination.mjs";
+import { requireRouteAccess } from "@/lib/staff-session";
 import {
   buildSaleLineLookup,
   mapPriceHistory,
@@ -242,13 +242,9 @@ export default async function ProductHistoryPage({
     page?: string;
   }>;
 }) {
+  const staff = await requireRouteAccess("/product-history");
   const filters = await searchParams;
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const selectedProductId = Number(filters.product_id);
   const hasProductFilter = Number.isInteger(selectedProductId) && selectedProductId > 0;
@@ -354,11 +350,11 @@ export default async function ProductHistoryPage({
   const saleLines = buildSaleLineLookup((saleLineData ?? []) as unknown as SaleLineRow[]);
 
   const stockMovements = stockRows
-    .map((item) => mapStockMovement(item, saleLines, userData.user) as HistoryItem)
+    .map((item) => mapStockMovement(item, saleLines, { id: staff.user_id, email: staff.email }) as HistoryItem)
     .filter((item) => selectedType === "all" || item.type === selectedType);
 
   const priceChanges = ((priceResult.data ?? []) as unknown as PriceHistoryRow[]).map(
-    (item) => mapPriceHistory(item, userData.user) as HistoryItem,
+    (item) => mapPriceHistory(item, { id: staff.user_id, email: staff.email }) as HistoryItem,
   );
 
   const historyItems = [...stockMovements, ...priceChanges]
@@ -370,7 +366,7 @@ export default async function ProductHistoryPage({
   const stockReturnCount = historyItems.filter((item) => item.type === "void_return" || item.type === "refund_return").length;
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-end justify-between gap-3">
