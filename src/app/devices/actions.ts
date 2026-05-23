@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { requireActionAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 export type CurrentDevicePayload = {
@@ -109,6 +110,7 @@ async function updateDeviceStatus(
   update: Record<string, string | boolean>,
   action: string,
 ) {
+  const actor = await requireActionAccess("device.revoke");
   const { supabase, user } = await requireUser();
   const { data: device } = await supabase
     .from("device_sessions")
@@ -129,7 +131,7 @@ async function updateDeviceStatus(
     redirect(`/devices?error=${encodeURIComponent("อัปเดตอุปกรณ์ไม่สำเร็จ")}`);
   }
 
-  await writeAudit(id, user.id, action, `${device.device_name} (${device.user_email ?? "-"})`);
+  await writeAudit(id, actor.user_id ?? user.id, action, `${device.device_name} (${device.user_email ?? "-"})`);
   revalidatePath("/devices");
 }
 

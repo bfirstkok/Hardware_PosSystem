@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BadgePercent, Calculator, Pencil, Power, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 import { campaignStatusLabel, discountSummary, estimateDiscount, money } from "@/lib/promotion-rules.mjs";
 
@@ -32,12 +33,9 @@ const appliesToLabels: Record<DiscountRuleRow["applies_to"], string> = {
 };
 
 async function requireUser() {
+  const staff = await requireRouteAccess("/discounts");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) redirect("/login");
-
-  return { supabase, userId: userData.user.id };
+  return { supabase, userId: staff.user_id, staff };
 }
 
 function discountError(message: string) {
@@ -224,7 +222,7 @@ export default async function DiscountsPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const notice = await searchParams;
-  const { supabase } = await requireUser();
+  const { supabase, staff } = await requireUser();
   const { data, error } = await supabase
     .from("discount_rules")
     .select("id, name, code, discount_type, value, applies_to, min_purchase_amount, max_discount_amount, requires_approval, starts_at, ends_at, is_active")
@@ -237,7 +235,7 @@ export default async function DiscountsPage({
   const sampleDiscount = Math.max(0, ...discounts.map((item) => estimateDiscount(item, 1000)));
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

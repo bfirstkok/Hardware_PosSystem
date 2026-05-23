@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type BarcodeProduct = {
@@ -97,12 +97,8 @@ function Code39Barcode({ value }: { value: string }) {
 }
 
 export default async function BarcodesPage() {
+  const staff = await requireRouteAccess("/barcodes");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const { data } = await supabase
     .from("products")
@@ -113,7 +109,7 @@ export default async function BarcodesPage() {
   const products = (data ?? []) as BarcodeProduct[];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

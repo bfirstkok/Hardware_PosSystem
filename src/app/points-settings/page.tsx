@@ -3,6 +3,7 @@ import { ModulePage } from "@/components/module-page";
 export default function PointsSettingsPage() {
   return (
     <ModulePage
+      pathname="/points-settings"
       section="CRM"
       title="ตั้งค่าสะสมแต้ม"
       description="กำหนดเงื่อนไขการสะสมแต้ม การแลกแต้ม และอายุแต้มของระบบสมาชิก"
