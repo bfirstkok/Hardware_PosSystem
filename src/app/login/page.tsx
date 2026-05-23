@@ -1,45 +1,57 @@
 "use client";
 
 import { FormEvent, Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { LogIn } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const deviceReason = searchParams.get("device");
+  const authReason = searchParams.get("auth");
   const deviceMessage =
     deviceReason === "blocked"
       ? "อุปกรณ์นี้ถูกปิดกั้น ต้องให้ผู้ดูแลอนุมัติก่อน"
       : deviceReason === "revoked"
         ? "session ของอุปกรณ์นี้ถูกยกเลิกแล้ว กรุณาเข้าสู่ระบบใหม่"
         : "";
+  const authMessage =
+    authReason === "staff-profile-missing"
+      ? "เข้าสู่ระบบได้แล้ว แต่ไม่พบ staff_profiles ที่ active สำหรับบัญชีนี้"
+      : authReason === "no-session"
+        ? "เข้าสู่ระบบไม่สำเร็จ session ไม่ถูกบันทึกใน browser"
+      : "";
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
 
-    const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const response = await fetch("/auth/employee-login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        employeeCode,
+        password,
+      }),
     });
 
     setLoading(false);
 
-    if (signInError) {
-      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+    if (!response.ok) {
+      const result = (await response.json().catch(() => null)) as { error?: string } | null;
+      setError(result?.error ?? "รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง");
       return;
     }
 
-    router.push("/dashboard");
-    router.refresh();
+    const result = (await response.json()) as { defaultPath?: string };
+    localStorage.removeItem("hardware-pos-current-device-id");
+    window.location.assign(result.defaultPath ?? "/pos");
   }
 
   return (
@@ -51,17 +63,20 @@ function LoginForm() {
           </div>
           <div>
             <h1 className="text-xl font-semibold">เข้าสู่ระบบ POS</h1>
-            <p className="text-sm text-slate-500">ใช้บัญชี Supabase Auth</p>
+            <p className="text-sm text-slate-500">ใช้รหัสพนักงานและรหัสผ่าน</p>
           </div>
         </div>
 
         <label className="mt-6 block text-sm font-medium">
-          อีเมล
+          รหัสพนักงานหรืออีเมล
           <input
+            autoCapitalize="none"
+            autoCorrect="off"
             className="mt-2 h-11 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-emerald-600"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            placeholder="EMP001 หรือ admin@hardwarepos.dev"
+            type="text"
+            value={employeeCode}
+            onChange={(event) => setEmployeeCode(event.target.value)}
             required
           />
         </label>
@@ -69,6 +84,8 @@ function LoginForm() {
         <label className="mt-4 block text-sm font-medium">
           รหัสผ่าน
           <input
+            autoCapitalize="none"
+            autoCorrect="off"
             className="mt-2 h-11 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-emerald-600"
             type="password"
             value={password}
@@ -80,6 +97,12 @@ function LoginForm() {
         {deviceMessage ? (
           <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             {deviceMessage}
+          </p>
+        ) : null}
+
+        {authMessage ? (
+          <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {authMessage}
           </p>
         ) : null}
 

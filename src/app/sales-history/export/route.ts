@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { canPerformAction } from "@/lib/permissions";
+import { getCurrentStaff } from "@/lib/staff-session";
 import {
   buildSalesExportFilters,
   refundStatuses,
@@ -45,6 +47,16 @@ const saleSelectWithOffline =
   "id, sale_no, sale_date, subtotal, discount_amount, total_amount, payment_method, status, client_invoice_no, offline_created_at, created_by, sale_items(id, qty, unit_price, line_total, products(sku, name)), payments(id, payment_method, amount, reference_no)";
 
 export async function GET(request: Request) {
+  const staff = await getCurrentStaff();
+
+  if (!staff) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (!canPerformAction(staff.role, "reports.export")) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
