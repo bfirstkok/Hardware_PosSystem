@@ -86,6 +86,67 @@
 
 ## 🆕 อัปเดตล่าสุด
 
+### Staff Access Control, Employee Login และ Protected Routes
+
+- เพิ่มระบบสิทธิ์พนักงานตาม role:
+  - `cashier` เข้าได้เฉพาะหน้าร้าน, stock basic, sales history ที่เกี่ยวข้อง
+  - `manager` เข้า dashboard/report/product/staff operation ได้มากขึ้น
+  - `owner` เข้าได้ทุก module รวมถึง branch/admin
+- เพิ่ม helper กลางสำหรับ permission:
+  - `src/lib/permissions.ts`
+  - `src/lib/permissions.mjs`
+  - `src/lib/permissions.test.mjs`
+- เพิ่ม employee login จริง:
+  - route `src/app/auth/employee-login/route.ts`
+  - login ด้วย `employee_code` เช่น `CAS001`, `MGR001`, `OWN001` หรือ email owner เดิม
+  - ใช้ `SUPABASE_SERVICE_ROLE_KEY` เฉพาะฝั่ง server เพื่อ map `employee_code -> auth_email`
+  - validate payload ก่อน login และ reject malformed/oversized input ด้วย `400`
+- ปรับระบบรหัสพนักงานใหม่ตาม role:
+  - `cashier` -> `CAS001`, `CAS002`, ...
+  - `manager` -> `MGR001`, `MGR002`, ...
+  - `owner` -> `OWN001`, `OWN002`, ...
+  - รหัส legacy เช่น `ADMIN001`, `EMP001`, `OWNER001` ยังใช้ได้ ไม่ถูกลบหรือ rewrite
+  - helper ที่เกี่ยวข้อง: `src/lib/staff-code.ts`, `src/lib/staff-code.mjs`, `src/lib/staff-code.test.mjs`
+- ปรับหน้า `/employees` ให้ใช้ข้อมูลจริง:
+  - แสดงรายชื่อจาก `staff_profiles` ผ่าน server-only admin client หลังผ่าน `requireRouteAccess("/employees")`
+  - `owner` เห็นทุก role, `manager` เห็นเฉพาะ `cashier`
+  - หัวข้อหน้าเหลือเฉพาะที่ใช้จริง: `เพิ่มพนักงาน`, `รายชื่อพนักงาน`, `บทบาท/สิทธิ์`
+- เพิ่ม protected route Proxy สำหรับ Next.js 16:
+  - `src/proxy.ts`
+  - ถ้ายังไม่ login แล้วเข้า `/pos`, `/dashboard`, `/sales-history`, `/stock` ฯลฯ จะ redirect ไป `/login?auth=no-session&next=...`
+  - `next` path ถูก sanitize ให้เป็น local path เท่านั้น ป้องกัน open redirect
+- เพิ่ม server-side role guard ใน protected pages:
+  - `ModulePage` รับ `pathname` แล้วเรียก `requireRouteAccess(pathname)` ก่อน render
+  - หน้า static/stub เช่น `/reports`, `/branches`, `/customers`, `/documents`, `/expenses`, `/points`, `/suppliers` ถูกกันสิทธิ์จริง
+  - หน้าจริงเช่น `/products`, `/stock`, `/sales-history`, `/product-history`, `/barcodes`, `/devices`, `/promotions`, `/discounts` ใช้ `requireRouteAccess(...)`
+  - server actions สำคัญเช็ค `requireActionAccess(...)` เช่น product create/update/delete, stock receive, device approve/block/revoke
+- แก้หน้าแรก:
+  - ปุ่ม `เข้าสู่ระบบ POS` ไป `/pos`
+  - ปุ่ม `Dashboard` ไป `/dashboard`
+  - ทั้งสอง path ถูก Proxy บังคับ login เองเมื่อยังไม่มี session
+- แก้ sidebar/nav:
+  - ระหว่างโหลด role ใช้ fallback เป็น `cashier`
+  - ไม่โชว์ owner/manager menu แวบหนึ่งตอน cashier navigate
+  - ไม่ทำให้หมวดหมู่หายตอน page ไม่ได้ส่ง `currentStaff`
+- เพิ่ม tests:
+  - `src/lib/protected-routes.test.mjs`
+  - `src/lib/employee-login-validation.test.mjs`
+  - `src/lib/staff-code.test.mjs`
+  - permission regression สำหรับ invalid role และ post-login redirect ตาม role
+
+Migration ที่เกี่ยวข้อง:
+
+```text
+supabase/migrations/202605230001_staff_access_control.sql
+supabase/seed_staff_mockup.sql
+```
+
+Quality notes:
+
+- Security: protected route guard ทำงานก่อน render, server-side role guard ครอบคลุม module pages, login redirect sanitize `next`, invalid/null role เข้า protected route ไม่ได้
+- Performance: Proxy เช็คเฉพาะ route ที่อยู่ใน protected list; public/static route ไม่เรียก Supabase Auth
+- Testing: ตรวจด้วย `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm audit --audit-level=high`
+
 ### Device Session Control, IP Masking และ Access Enforcement
 
 - เพิ่มระบบบริหารอุปกรณ์ที่เข้าสู่ระบบจริงผ่าน Supabase:
@@ -292,6 +353,7 @@ npm install
 # สร้าง .env.local
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
 ### 3️⃣ ตั้งค่าฐานข้อมูล
@@ -311,6 +373,7 @@ Migration สำคัญสำหรับระบบอุปกรณ์/ses
 
 ```text
 supabase/migrations/202605220001_device_sessions.sql
+supabase/migrations/202605230001_staff_access_control.sql
 ```
 
 ### 4️⃣ รัน Development Server
@@ -322,8 +385,9 @@ npm run dev
 
 ### 5️⃣ เข้าสู่ระบบ
 
-- ใช้อีเมลใด ๆ (ไม่ต้องรหัสผ่าน)
-- ตรวจสอบ inbox สำหรับ magic link
+- Owner เดิม: `admin@hardwarepos.dev` + password เดิมใน Supabase Auth
+- Employee: ใช้รหัสพนักงาน เช่น `EMP002` + password ที่ owner/manager ตั้ง
+- ถ้าเข้า protected route โดยยังไม่ login ระบบจะส่งไป `/login?auth=no-session&next=...`
 
 ---
 
@@ -333,12 +397,14 @@ npm run dev
 Hardware_PosSystem/
 │
 ├── src/
+│   ├── proxy.ts                     # Next.js 16 protected route proxy
 │   ├── app/                          # Next.js App Router
 │   │   ├── layout.tsx                # Root layout (AppShell)
 │   │   ├── globals.css               # Tailwind CSS
 │   │   ├── page.tsx                  # Home page
 │   │   │
 │   │   ├── login/page.tsx            # 🔑 Authentication
+│   │   ├── auth/employee-login/route.ts
 │   │   ├── dashboard/page.tsx        # 📊 Dashboard & KPIs
 │   │   ├── dashboard/loading.tsx     # Loading skeleton
 │   │   ├── pos/page.tsx              # 🛒 POS Terminal
@@ -369,6 +435,9 @@ Hardware_PosSystem/
 │   │
 │   └── lib/
 │       ├── device-access-actions.ts  # Block/revoke guard
+│       ├── employee-login-validation.ts
+│       ├── permissions.ts            # Staff RBAC
+│       ├── protected-routes.ts       # Protected route list + login redirect helper
 │       ├── navigation-loading.test.mjs
 │       └── supabase/
 │           ├── client.ts             # Browser client
@@ -497,7 +566,15 @@ npx eslint --fix src/
 # .env.local
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
+
+Security note:
+
+- `SUPABASE_SERVICE_ROLE_KEY` ต้องอยู่ฝั่ง server เท่านั้น
+- ห้าม prefix เป็น `NEXT_PUBLIC_`
+- ห้าม log, commit, หรือส่งให้ browser
+- ใช้สำหรับ server route เช่น `src/app/auth/employee-login/route.ts` และ staff creation เท่านั้น
 
 ---
 
@@ -506,8 +583,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anonKey
 ### Current Status: ✅ Basic Test Suite
 
 - Uses Node.js built-in test runner
-- Current suite: 22 tests
-- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, and navigation loading regression
+- Current suite: 37 tests
+- Covers POS product filtering, promotion/discount logic, sales CSV export safety, product history mapping/export safety, pagination helper, navigation loading regression, staff permission, protected route redirect, employee login payload validation, and staff code generation
 
 ### Run Tests
 
@@ -714,19 +791,20 @@ npm run dev
 
 งานล่าสุดที่ทำ:
 
-- ทำระบบ `device_sessions` และ `device_audit_logs`
-- เพิ่มหน้า `/devices` สำหรับอนุมัติ/ปิดกั้น/ยกเลิกอุปกรณ์
-- เพิ่มหน้า `/devices/logs` สำหรับดู log การเข้าใช้งาน
-- เพิ่ม client guard ใน `AppShell` เพื่อ sign out เครื่องที่ถูก `blocked` หรือ `revoked`
-- เพิ่มข้อความแจ้งเหตุผลใน `/login?device=blocked|revoked`
-- เพิ่ม IP masking ในหน้าหลักและเก็บ IP เต็มใน log
+- เพิ่ม server-side role guard ให้ protected pages และ stub modules ผ่าน `requireRouteAccess(...)`
+- ปรับ `ModulePage` ให้รับ `pathname` และกันสิทธิ์ก่อน render
+- ปรับ `/employees` ให้แสดงรายชื่อจาก `staff_profiles` จริงผ่าน server-only admin client
+- ปรับหัวข้อหน้า `/employees` เหลือเฉพาะ `เพิ่มพนักงาน`, `รายชื่อพนักงาน`, `บทบาท/สิทธิ์`
+- เพิ่มระบบรหัสพนักงานใหม่ตาม role: `CAS###`, `MGR###`, `OWN###`
+- เพิ่ม tests สำหรับ staff code generation และอัปเดต suite เป็น 37 tests
 
 งานที่ควรทำต่อ:
 
 - เพิ่มปุ่ม `ปลดบล็อก` ใน UI แทนการใช้ SQL
-- เพิ่ม server-side guard ใน server actions/API ทุกจุด โดยอ่าน `hardware_pos_device_key`
-- เพิ่ม role/admin check สำหรับ action อนุมัติ/ปิดกั้น/ยกเลิก
 - เพิ่ม automated tests สำหรับ pure logic ของ device access และ IP masking
+- เพิ่ม UI reset password / temporary password flow สำหรับพนักงานจริง
+- เพิ่ม filter/search จริงในหน้า `/employees`
+- เพิ่ม pagination ใน `/employees` ถ้าจำนวนพนักงานเยอะ
 
 Skills แนะนำสำหรับ session ถัดไป:
 
@@ -734,6 +812,7 @@ Skills แนะนำสำหรับ session ถัดไป:
 security-and-hardening
 test-driven-development
 performance-optimization
+frontend-ui-engineering
 ```
 
 ---
@@ -774,6 +853,7 @@ Built with ❤️ for small businesses
 
 ---
 
-**Last Updated:** May 22, 2026  
+**Last Updated:** May 23, 2026  
+**Staff Access Update:** May 23, 2026  
 **Version:** 0.1.0 (Beta)  
 **Status:** 🟡 Active Development

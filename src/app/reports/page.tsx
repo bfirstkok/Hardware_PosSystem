@@ -3,6 +3,7 @@ import { ModulePage } from "@/components/module-page";
 export default function ReportsPage() {
   return (
     <ModulePage
+      pathname="/reports"
       section="เอกสาร / รายงาน"
       title="รายงาน"
       description="ศูนย์รวมรายงานยอดขาย กำไร สต๊อก และการทำงานของร้าน สำหรับเจ้าของร้านและผู้จัดการ"

@@ -1,15 +1,19 @@
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 
 type ModulePageProps = {
+  pathname: string;
   title: string;
   section: string;
   description: string;
   features: string[];
 };
 
-export function ModulePage({ title, section, description, features }: ModulePageProps) {
+export async function ModulePage({ pathname, title, section, description, features }: ModulePageProps) {
+  const staff = await requireRouteAccess(pathname);
+
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

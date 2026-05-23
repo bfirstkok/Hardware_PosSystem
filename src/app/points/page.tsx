@@ -3,6 +3,7 @@ import { ModulePage } from "@/components/module-page";
 export default function PointsPage() {
   return (
     <ModulePage
+      pathname="/points"
       section="CRM"
       title="แลกสะสมแต้ม"
       description="บันทึกและแลกแต้มสะสมของลูกค้า เพื่อเพิ่มการกลับมาซื้อซ้ำ"

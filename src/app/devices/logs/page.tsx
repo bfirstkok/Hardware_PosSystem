@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type DeviceLogRow = {
@@ -28,12 +28,8 @@ function dateTime(value: string) {
 }
 
 export default async function DeviceLogsPage() {
+  const staff = await requireRouteAccess("/devices/logs");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const { data, error } = await supabase
     .from("device_audit_logs")
@@ -46,7 +42,7 @@ export default async function DeviceLogsPage() {
   const logs = (data ?? []) as unknown as DeviceLogRow[];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

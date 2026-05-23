@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { CalendarDays, ChevronDown, CreditCard, Download, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { pageHref, paginationState, parsePage } from "@/lib/pagination.mjs";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type SaleItemRow = {
@@ -274,12 +274,8 @@ export default async function SalesHistoryPage({
     page?: string;
   }>;
 }) {
+  const staff = await requireRouteAccess("/sales-history");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const params = await searchParams;
   const selectedPeriod = periodOptions.some((option) => option.value === params.period)
@@ -375,7 +371,7 @@ export default async function SalesHistoryPage({
   const hasActiveFilters = selectedCustomRange || selectedPayment !== "all" || selectedStatus !== "all";
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -575,7 +571,7 @@ export default async function SalesHistoryPage({
                         <StatusBadge status={sale.status} />
                       </div>
                       <div className="truncate text-slate-600">
-                        {cashierLabel(sale.created_by, userData.user.id, userData.user.email)}
+                        {cashierLabel(sale.created_by, staff.user_id, staff.email)}
                       </div>
                       <div className="font-semibold text-slate-950 lg:text-right">
                         {money(sale.total_amount)} บาท
