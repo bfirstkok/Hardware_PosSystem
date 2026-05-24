@@ -1,12 +1,14 @@
-import { ModulePage } from "@/components/module-page";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import ReportsClient from "./reports-client";
 
-export default function ReportsPage() {
-  return (
-    <ModulePage
-      section="เอกสาร / รายงาน"
-      title="รายงาน"
-      description="ศูนย์รวมรายงานยอดขาย กำไร สต๊อก และการทำงานของร้าน สำหรับเจ้าของร้านและผู้จัดการ"
-      features={["ยอดขายรายวัน", "กำไรขั้นต้น", "สินค้าขายดี", "รายงานสต๊อก", "ส่งออก Excel / PDF"]}
-    />
-  );
+export default async function ReportsPage() {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!userData.user) {
+    redirect("/login");
+  }
+
+  return <ReportsClient />;
 }
