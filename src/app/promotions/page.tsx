@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { CalendarDays, Gift, Pencil, Power, Tags } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 import { campaignStatusLabel, money, promotionSummary } from "@/lib/promotion-rules.mjs";
 
@@ -28,12 +29,9 @@ const promotionTypeLabels: Record<PromotionRow["promotion_type"], string> = {
 };
 
 async function requireUser() {
+  const staff = await requireRouteAccess("/promotions");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) redirect("/login");
-
-  return { supabase, userId: userData.user.id };
+  return { supabase, userId: staff.user_id, staff };
 }
 
 function promotionError(message: string) {
@@ -207,7 +205,7 @@ export default async function PromotionsPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const notice = await searchParams;
-  const { supabase } = await requireUser();
+  const { supabase, staff } = await requireUser();
   const { data, error } = await supabase
     .from("promotions")
     .select("id, name, description, promotion_type, buy_qty, get_qty, min_purchase_amount, reward_text, starts_at, ends_at, priority, is_active")
@@ -219,7 +217,7 @@ export default async function PromotionsPage({
   const activeCount = promotions.filter((item) => campaignStatusLabel(item) === "กำลังใช้งาน").length;
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

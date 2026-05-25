@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import type { CurrentStaff } from "@/lib/staff-session";
 import {
   Ban,
   CheckCircle2,
@@ -133,12 +134,14 @@ function maskIpAddress(value: string) {
 }
 
 export function DevicesClient({
+  currentStaff,
   currentUserEmail,
   currentUserId,
   sessions,
   auditLog,
   dbError,
 }: {
+  currentStaff: CurrentStaff;
   currentUserEmail: string | null;
   currentUserId: string | null;
   sessions: DeviceSessionView[];
@@ -184,7 +187,7 @@ export function DevicesClient({
   ];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={currentStaff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

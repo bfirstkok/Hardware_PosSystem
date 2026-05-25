@@ -18,7 +18,7 @@ export async function checkDeviceAccess(deviceKey: string): Promise<DeviceAccess
 
   const { data, error } = await supabase
     .from("device_sessions")
-    .select("status")
+    .select("status, user_id")
     .eq("device_key", deviceKey)
     .maybeSingle();
 
@@ -27,6 +27,10 @@ export async function checkDeviceAccess(deviceKey: string): Promise<DeviceAccess
   }
 
   if (!data) {
+    return { allowed: true, reason: "unknown", message: "" };
+  }
+
+  if (data.user_id && data.user_id !== userData.user.id) {
     return { allowed: true, reason: "unknown", message: "" };
   }
 
