@@ -68,6 +68,7 @@
 | **RLS Security** | Row-Level Policies on all tables | ✅ |
 | **Atomic Transactions** | `complete_pos_sale()`, `receive_stock()` RPC | ✅ |
 | **Device Session Control** | Auto device registration, approve/block/revoke, audit logs | ✅ |
+| **Advanced Reporting** | Daily sales/profit, best sellers analytics, stock valuation & status report, CSV export, PDF print template | ✅ |
 
 ### 🔄 กำลังพัฒนา & วางแผน
 
@@ -77,7 +78,6 @@
 | **Employee Roles** | P1 | POS Operator, Manager, Accountant |
 | **Promotions & Discounts** | P1 | Flexible discount rules, campaigns |
 | **Multi-Branch** | P2 | Multiple outlets, branch reporting |
-| **Advanced Reporting** | P2 | Daily/monthly sales, product performance |
 | **Expense Tracking** | P2 | Operating costs analysis |
 | **Testing Framework** | P1 | Node test runner active, RTL + E2E planned |
 | **Receipt Printing** | P3 | Thermal printer integration |
@@ -85,6 +85,29 @@
 ---
 
 ## 🆕 อัปเดตล่าสุด
+
+### Advanced Reporting & Analytics, PDF Print Template และ CSV Export
+
+- พัฒนาระบบวิเคราะห์ข้อมูลและรายงานการทำงานที่หน้า `/reports` สำหรับร้านวัสดุก่อสร้าง:
+  - **แท็บ 1: ยอดขาย & กำไรรายวัน** - แดชบอร์ดสรุปยอดขาย ต้นทุน กำไร เปอร์เซ็นต์กำไรสะสม และตารางรายละเอียดการขายรายวัน
+  - **แท็บ 2: อันดับสินค้าขายดี (15 อันดับ)** - จัดอันดับสินค้ายอดนิยมเรียงตามปริมาณที่จำหน่ายพร้อมสัดส่วนยอดขายเปรียบเทียบในรูปแบบแท่งกราฟ CSS
+  - **แท็บ 3: รายงานสถานะสต๊อก** - รายงานมูลค่ารวมสินค้าคงคลัง (ทุน/ราคาขาย) สินค้าหมด และสินค้าสต๊อกต่ำกว่าจุดสั่งซื้อขั้นต่ำ พร้อมตารางระดับสต๊อกเรียงจากน้อยไปมากและ badge สีแจ้งเตือน
+- เพิ่มระบบส่งออกไฟล์ข้อมูล CSV แยกเป็นอิสระในแต่ละแท็บวิเคราะห์ รองรับภาษาไทยสมบูรณ์ (ด้วย UTF-8 BOM) และปลอดภัยจากการแทรกสูตรสเปรดชีต
+- พัฒนาเลย์เอาต์พิเศษสำหรับการพิมพ์ PDF (`window.print()`) ระดับทางการ:
+  - ซ่อนองค์ประกอบจำพวก Sidebar, Header, เมนูสลับหน้าต่างควบคุมอัตโนมัติ และขยายหน้าจอหลักเต็มความกว้าง A4 (100% full-width)
+  - พิมพ์รายงานรวบยอดทั้ง 3 ส่วนเรียงร้อยต่อเนื่องในเอกสารชุดเดียวกัน โดยสั่งขึ้นหน้าใหม่ (Page breaks) สำหรับแต่ละหัวข้อเพื่อความสะดวกในการอ่าน
+  - เพิ่มส่วนเซ็นลงชื่อรับรองความถูกต้องของผู้ทำเอกสารและผู้อนุมัติ (เจ้าของร้าน/ผู้จัดการ) ที่ส่วนท้ายของรายงาน
+- เพิ่มความมั่นคงและการตรวจสอบความปลอดภัย:
+  - ย้ายหน้ารายงานหลักและย่อยเข้าสู่ Server Component เช็คผู้ใช้งานผ่าน `supabase.auth.getUser()` และ redirect เข้าหน้าล็อกอินหากไม่มีสิทธิ์
+  - API `/api/reports/sales-overview` บังคับเช็คการยืนยันตัวตนพร้อมส่ง 401 เมื่อผู้ใช้ยังไม่ได้ล็อกอิน ป้องกัน RLS SQL error และหน้าจอแครชจากค่าว่าง
+
+ไฟล์หลักที่เกี่ยวข้อง:
+
+```text
+src/app/reports/page.tsx
+src/app/reports/reports-client.tsx
+src/app/api/reports/sales-overview/route.ts
+```
 
 ### Staff Access Control, Employee Login และ Protected Routes
 
@@ -849,11 +872,14 @@ Built with ❤️ for small businesses
 
 ## 👨‍💻 Authors
 
-- **bfirstkok** - Repository Owner
+- **bfirstkok**     - Repository Owner & Product Engineer
+- **Dparamet**      - Tech Lead & FullStack Dev
+- **S4FEM0DE22**    - UX-UI & Frontend Engineer
+- **ru1no888**      - FullStack Developer
+- **SoponSaenkaew** - FullStack Developer
 
 ---
 
-**Last Updated:** May 23, 2026  
-**Staff Access Update:** May 23, 2026  
+**Last Updated:** May 25, 2026  
 **Version:** 0.1.0 (Beta)  
 **Status:** 🟡 Active Development
