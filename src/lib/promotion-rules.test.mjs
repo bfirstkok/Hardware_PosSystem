@@ -22,7 +22,7 @@ test("campaignStatusLabel reports active, scheduled, expired, and disabled state
   );
 });
 
-test("discountSummary describes amount, percent cap, threshold, and approval", () => {
+test("discountSummary describes percent cap, threshold, and approval", () => {
   assert.equal(
     discountSummary({
       discount_type: "percent",
@@ -33,11 +33,6 @@ test("discountSummary describes amount, percent cap, threshold, and approval", (
     }),
     "ลด 10% · ขั้นต่ำ 500.00 บาท · ลดสูงสุด 120.00 บาท · ต้องอนุมัติ",
   );
-
-  assert.equal(
-    discountSummary({ discount_type: "amount", value: 50, min_purchase_amount: 0 }),
-    "ลด 50.00 บาท",
-  );
 });
 
 test("estimateDiscount respects minimum purchase, caps, and subtotal floor", () => {
@@ -46,7 +41,7 @@ test("estimateDiscount respects minimum purchase, caps, and subtotal floor", () 
     estimateDiscount({ discount_type: "percent", value: 10, min_purchase_amount: 500, max_discount_amount: 80 }, 1000),
     80,
   );
-  assert.equal(estimateDiscount({ discount_type: "amount", value: 150 }, 100), 100);
+  assert.equal(estimateDiscount({ discount_type: "percent", value: 150 }, 100), 100);
 });
 
 test("promotionSummary describes promotion mechanics", () => {

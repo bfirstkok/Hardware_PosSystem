@@ -8,6 +8,7 @@ create table if not exists promotions (
   get_qty numeric(12,2) not null default 0 check (get_qty >= 0),
   min_purchase_amount numeric(12,2) not null default 0 check (min_purchase_amount >= 0),
   reward_text text,
+  reward_product_id bigint references products(id) on delete set null,
   starts_at date,
   ends_at date,
   priority integer not null default 10 check (priority >= 0),
@@ -22,10 +23,10 @@ create table if not exists discount_rules (
   name text not null,
   code text unique,
   discount_type text not null default 'percent'
-    check (discount_type in ('percent', 'amount')),
-  value numeric(12,2) not null default 0 check (value >= 0),
-  applies_to text not null default 'bill'
-    check (applies_to in ('bill', 'coupon', 'member')),
+    check (discount_type = 'percent'),
+  value numeric(12,2) not null default 1 check (value >= 1 and value <= 100),
+  applies_to text not null default 'member'
+    check (applies_to = 'member'),
   min_purchase_amount numeric(12,2) not null default 0 check (min_purchase_amount >= 0),
   max_discount_amount numeric(12,2) not null default 0 check (max_discount_amount >= 0),
   requires_approval boolean not null default false,
@@ -36,6 +37,11 @@ create table if not exists discount_rules (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table promotions add column if not exists reward_product_id bigint references products(id) on delete set null;
+
+create index if not exists promotions_reward_product_idx
+on promotions (reward_product_id);
 
 drop trigger if exists promotions_touch_updated_at on promotions;
 create trigger promotions_touch_updated_at

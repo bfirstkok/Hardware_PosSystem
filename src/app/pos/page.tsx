@@ -1,14 +1,7 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { requireRouteAccess } from "@/lib/staff-session";
 import PosClient from "./pos-client";
 
 export default async function PosPage() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
-
-  return <PosClient />;
+  const staff = await requireRouteAccess("/pos");
+  return <PosClient currentStaff={staff} />;
 }

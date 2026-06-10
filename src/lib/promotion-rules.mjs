@@ -18,15 +18,13 @@ export function campaignStatusLabel(rule, now = new Date()) {
 
 export function discountSummary(rule) {
   const value = Math.max(Number(rule?.value || 0), 0);
-  const type = rule?.discount_type === "amount" ? "amount" : "percent";
   const min = Math.max(Number(rule?.min_purchase_amount || 0), 0);
   const max = Math.max(Number(rule?.max_discount_amount || 0), 0);
   const parts = [];
-
-  parts.push(type === "amount" ? `ลด ${money(value)} บาท` : `ลด ${value.toLocaleString("th-TH")}%`);
+  parts.push(`ลด ${value.toLocaleString("th-TH")}%`);
 
   if (min > 0) parts.push(`ขั้นต่ำ ${money(min)} บาท`);
-  if (type === "percent" && max > 0) parts.push(`ลดสูงสุด ${money(max)} บาท`);
+  if (max > 0) parts.push(`ลดสูงสุด ${money(max)} บาท`);
   if (rule?.requires_approval) parts.push("ต้องอนุมัติ");
 
   return parts.join(" · ");
@@ -38,9 +36,9 @@ export function estimateDiscount(rule, subtotal) {
   if (amount <= 0 || amount < min) return 0;
 
   const value = Math.max(Number(rule?.value || 0), 0);
-  const raw = rule?.discount_type === "amount" ? value : amount * (value / 100);
+  const raw = amount * (value / 100);
   const max = Math.max(Number(rule?.max_discount_amount || 0), 0);
-  const capped = rule?.discount_type === "percent" && max > 0 ? Math.min(raw, max) : raw;
+  const capped = max > 0 ? Math.min(raw, max) : raw;
 
   return Math.min(amount, Math.max(capped, 0));
 }

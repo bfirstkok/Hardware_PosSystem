@@ -1,8 +1,8 @@
 "use client";
 
 import Link, { useLinkStatus } from "next/link";
-import { usePathname } from "next/navigation";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BadgePercent,
@@ -28,7 +28,14 @@ import {
   Truck,
   UserRound,
   UsersRound,
+  LogOut,
+  Menu,
+  X,
 } from "lucide-react";
+import { checkDeviceAccess } from "@/lib/device-access-actions";
+import { canAccessRoute, type StaffRole } from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/client";
+import type { CurrentStaff } from "@/lib/staff-session";
 
 const sidebarAccent = {
   groupActive: "border-slate-900 bg-slate-900 text-white shadow-sm",
@@ -109,11 +116,30 @@ function LinkPendingIndicator() {
   );
 }
 
-function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | null> }) {
+function Sidebar({
+  sidebarRef,
+  role,
+  onNavigate,
+}: {
+  sidebarRef: React.RefObject<HTMLElement | null>;
+  role: StaffRole | null;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const visibleRole = role ?? "cashier";
+  const visibleGroups = useMemo(
+    () =>
+      navGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => canAccessRoute(visibleRole, item.href)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [visibleRole]
+  );
   const activeGroupLabel = useMemo(
-    () => navGroups.find((group) => group.items.some((item) => item.href === pathname))?.label,
-    [pathname]
+    () => visibleGroups.find((group) => group.items.some((item) => item.href === pathname))?.label,
+    [pathname, visibleGroups]
   );
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [selectedGroupLabel, setSelectedGroupLabel] = useState<string | null>(null);
@@ -133,11 +159,12 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
       ...(activeGroupLabel ? { [activeGroupLabel]: true } : {}),
       [groupLabel]: true,
     }));
+    onNavigate?.();
   };
 
   return (
     <nav ref={sidebarRef} className="h-[calc(100vh-4rem)] space-y-5 overflow-y-auto px-3 py-4" data-testid="sidebar-nav">
-      {navGroups.map((group, index) => {
+      {visibleGroups.map((group, index) => {
         const hasActiveItem = group.label === activeGroupLabel;
         const selected = group.label === (selectedGroupLabel ?? activeGroupLabel);
         const open = openGroups[group.label] ?? hasActiveItem;
@@ -192,8 +219,26 @@ function Sidebar({ sidebarRef }: { sidebarRef: React.RefObject<HTMLElement | nul
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  currentStaff,
+}: {
+  children: React.ReactNode;
+  currentStaff?: CurrentStaff | null;
+}) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const mobileSidebarRef = useRef<HTMLElement>(null);
+  const router = useRouter();
+  const [accessMessage, setAccessMessage] = useState("");
+  const [staff, setStaff] = useState<CurrentStaff | null>(currentStaff ?? null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
 
   // บันทึก scroll position ของ sidebar เมื่อ scroll
   useLayoutEffect(() => {
@@ -219,8 +264,75 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function verifyDeviceAccess() {
+      const deviceKey = localStorage.getItem("hardware-pos-current-device-id");
+      if (!deviceKey) return;
+
+      let result;
+      try {
+        result = await checkDeviceAccess(deviceKey);
+      } catch {
+        return;
+      }
+      if (cancelled || result.allowed) return;
+
+      setAccessMessage(result.message);
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.replace(`/login?device=${encodeURIComponent(result.reason)}`);
+      router.refresh();
+    }
+
+    verifyDeviceAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (currentStaff) return;
+
+    let cancelled = false;
+
+    async function loadStaff() {
+      const supabase = createClient();
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return;
+
+      const { data } = await supabase
+        .from("staff_profiles")
+        .select("*")
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+
+      if (!cancelled && data?.account_status === "active") {
+        setStaff({
+          ...data,
+          email: data.auth_email,
+          branch_name: null,
+          permission_overrides: data.permission_overrides ?? {},
+        } as CurrentStaff);
+      }
+    }
+
+    loadStaff().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStaff]);
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
+      {accessMessage ? (
+        <div className="fixed inset-x-0 top-0 z-50 border-b border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">
+          {accessMessage} กำลังออกจากระบบ
+        </div>
+      ) : null}
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 bg-slate-100 px-5">
           <div className="flex size-10 items-center justify-center rounded-md bg-slate-900 text-white">
@@ -231,22 +343,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="text-xs text-slate-600">ระบบร้านวัสดุก่อสร้าง</div>
           </div>
         </div>
-        <Sidebar sidebarRef={sidebarRef} />
+        <Sidebar sidebarRef={sidebarRef} role={staff?.role ?? null} />
       </aside>
+      {mobileNavOpen ? (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="ปิดเมนู"
+            className="absolute inset-0 bg-slate-950/40"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <aside className="relative h-full w-72 max-w-[85vw] border-r border-slate-200 bg-white shadow-2xl">
+            <div className="flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-slate-100 px-4">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-md bg-slate-900 text-white">
+                  <ClipboardList size={23} />
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-950">Hardware POS</div>
+                  <div className="text-xs text-slate-600">เมนูระบบ</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="ปิดเมนู"
+                onClick={() => setMobileNavOpen(false)}
+                className="inline-flex size-10 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <Sidebar sidebarRef={mobileSidebarRef} role={staff?.role ?? null} onNavigate={() => setMobileNavOpen(false)} />
+          </aside>
+        </div>
+      ) : null}
       <div className="lg:pl-64">
         <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:px-6">
-          <div>
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              aria-label="เปิดเมนู"
+              onClick={() => setMobileNavOpen(true)}
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 lg:hidden"
+            >
+              <Menu size={18} />
+            </button>
+            <div className="min-w-0">
             <div className="font-semibold">ระบบร้านวัสดุก่อสร้าง</div>
             <div className="text-xs text-slate-500">จัดการหน้าร้าน เอกสาร สต๊อก ลูกค้า และบริหาร</div>
           </div>
-          <Link
-            href="/pos"
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white outline-none transition-colors hover:bg-slate-700 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-[0.99]"
-          >
-            <ShoppingCart size={17} />
-            เปิดหน้าขาย
-            <LinkPendingIndicator />
-          </Link>
+            </div>
+          <div className="flex items-center gap-2">
+            {staff ? (
+              <Link
+                href="/me"
+                className="hidden min-h-10 items-center gap-2 rounded-md border border-slate-200 px-3 text-left text-sm hover:bg-slate-50 md:flex"
+              >
+                <UserRound size={17} className="text-slate-500" />
+                <span>
+                  <span className="block max-w-36 truncate font-medium">{staff.display_name}</span>
+                  <span className="block text-xs uppercase text-slate-500">{staff.role}</span>
+                </span>
+                <LinkPendingIndicator />
+              </Link>
+            ) : null}
+            <Link
+              href="/pos"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white outline-none transition-colors hover:bg-slate-700 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-[0.99]"
+            >
+              <ShoppingCart size={17} />
+              เปิดหน้าขาย
+              <LinkPendingIndicator />
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="inline-flex size-10 items-center justify-center rounded-md border border-slate-200 text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+              aria-label="ออกจากระบบ"
+              title="ออกจากระบบ"
+            >
+              <LogOut size={17} />
+            </button>
+          </div>
         </header>
         {children}
       </div>

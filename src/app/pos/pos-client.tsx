@@ -33,6 +33,7 @@ import {
   updatePendingSale,
 } from "@/lib/offline-sales";
 import { filterProducts, MAX_VISIBLE_PRODUCTS } from "@/lib/pos-products.mjs";
+import type { CurrentStaff } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/client";
 
 type Product = {
@@ -51,6 +52,22 @@ type Product = {
 type CartItem = Product & {
   qty: number;
   unitPrice: number;
+};
+
+type Customer = {
+  id: number;
+  member_code: string;
+  full_name: string;
+  phone: string | null;
+  member_status: "active" | "paused" | "blocked";
+  points_balance: number;
+  is_active: boolean;
+};
+
+type LoyaltySettings = {
+  earn_amount: number;
+  earn_points: number;
+  is_active: boolean;
 };
 
 type SoldItem = {
@@ -99,7 +116,7 @@ function productInitials(name: string) {
     .toUpperCase();
 }
 
-export default function PosClient() {
+export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLElement>(null);
   const checkoutIdempotencyKeyRef = useRef<string | null>(null);
@@ -110,6 +127,10 @@ export default function PosClient() {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [priceMode, setPriceMode] = useState<"retail" | "wholesale">("retail");
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [loyaltySettings, setLoyaltySettings] = useState<LoyaltySettings | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -142,6 +163,48 @@ export default function PosClient() {
 
     loadProducts();
     searchRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    async function loadCustomers() {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("customers")
+          .select("id, member_code, full_name, phone, member_status, points_balance, is_active")
+          .eq("is_active", true)
+          .eq("member_status", "active")
+          .order("full_name")
+          .limit(300);
+
+        if (error) return;
+        setCustomers((data ?? []) as Customer[]);
+      } catch {
+        setCustomers([]);
+      }
+    }
+
+    void loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    async function loadLoyaltySettings() {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("loyalty_settings")
+          .select("earn_amount, earn_points, is_active")
+          .eq("id", 1)
+          .maybeSingle();
+
+        if (error || !data) return;
+        setLoyaltySettings(data as LoyaltySettings);
+      } catch {
+        setLoyaltySettings(null);
+      }
+    }
+
+    void loadLoyaltySettings();
   }, []);
 
   useEffect(() => {
@@ -187,6 +250,15 @@ export default function PosClient() {
     [activeCategory, deferredQuery, products],
   );
 
+  const visibleCustomers = useMemo(() => {
+    const digits = customerQuery.replace(/\D/g, "");
+    if (!digits) return customers.slice(0, 6);
+
+    return customers
+      .filter((customer) => (customer.phone ?? "").replace(/\D/g, "").includes(digits))
+      .slice(0, 8);
+  }, [customerQuery, customers]);
+
   const productLookup = useMemo(() => {
     const lookup = new Map<string, Product>();
     for (const product of products) {
@@ -201,6 +273,10 @@ export default function PosClient() {
   }, [cart]);
 
   const payableTotal = Math.max(0, subtotal - discountAmount);
+  const earnedPoints =
+    selectedCustomer && loyaltySettings?.is_active
+      ? Math.floor(payableTotal / Number(loyaltySettings.earn_amount || 1)) * Number(loyaltySettings.earn_points || 0)
+      : 0;
   const changeAmount = paymentMethod === "cash" ? Math.max(0, cashReceived - payableTotal) : 0;
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
 
@@ -295,12 +371,108 @@ export default function PosClient() {
 
   function clearBill() {
     setCart([]);
+    setSelectedCustomer(null);
+    setCustomerQuery("");
     setCustomerName("");
     setReferenceNo("");
     setDiscountAmount(0);
     setCashReceived(0);
     setMessage("");
     searchRef.current?.focus();
+  }
+
+  function selectCustomer(customer: Customer) {
+    setSelectedCustomer(customer);
+    setCustomerName(customer.full_name);
+    setCustomerQuery(customer.phone ?? "");
+    setMessage("");
+  }
+
+  function clearCustomer() {
+    setSelectedCustomer(null);
+    setCustomerQuery("");
+    setCustomerName("");
+  }
+
+  async function createMemberCode() {
+    const datePart = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Bangkok",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(new Date())
+      .replaceAll("-", "");
+    const prefix = `CUS${datePart}`;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("customers")
+      .select("member_code")
+      .ilike("member_code", `${prefix}%`)
+      .order("member_code", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const latest = Number(data?.member_code?.slice(prefix.length)) || 0;
+    return `${prefix}${String(latest + 1).padStart(4, "0")}`;
+  }
+
+  async function registerCustomer() {
+    const phone = customerQuery.trim();
+    const fullName = customerName.trim();
+    if (!phone) {
+      setMessage("กรุณากรอกเบอร์โทรลูกค้า");
+      return;
+    }
+    if (!fullName) {
+      setMessage("กรุณากรอกชื่อลูกค้าเพื่อสมัครสมาชิก");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+    try {
+      const supabase = createClient();
+      const memberCode = await createMemberCode();
+      const { data, error } = await supabase
+        .from("customers")
+        .insert({
+          member_code: memberCode,
+          full_name: fullName,
+          phone,
+          customer_type: "retail",
+          member_status: "active",
+          points_balance: 0,
+          is_active: true,
+          created_by: currentStaff.user_id,
+        })
+        .select("id, member_code, full_name, phone, member_status, points_balance, is_active")
+        .single();
+
+      if (error) throw error;
+      const customer = data as Customer;
+      setCustomers((current) => [customer, ...current]);
+      selectCustomer(customer);
+      setMessage(`สมัครสมาชิกแล้ว: ${customer.full_name}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "สมัครสมาชิกไม่สำเร็จ");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function awardMemberPoints(customer: Customer, saleNo: string, points: number) {
+    if (points <= 0) return 0;
+
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("award_customer_points", {
+      request_amount: payableTotal,
+      request_customer_id: customer.id,
+      request_points: points,
+      request_reference_no: saleNo,
+    });
+
+    if (error) throw error;
+    return Number(data ?? 0);
   }
 
   function salePayload(): PosSalePayload {
@@ -424,6 +596,8 @@ export default function PosClient() {
 
   function restoreHeldBill(bill: HeldBill) {
     setCart(bill.items);
+    setSelectedCustomer(null);
+    setCustomerQuery("");
     setCustomerName(bill.customerName === "ลูกค้าหน้าร้าน" ? "" : bill.customerName);
     setHeldBills((current) => current.filter((item) => item.id !== bill.id));
     setMessage("");
@@ -453,6 +627,8 @@ export default function PosClient() {
     }));
 
     const payload = salePayload();
+    const customerForSale = selectedCustomer;
+    const pointsForSale = earnedPoints;
 
     if (!navigator.onLine) {
       const pendingSale = await addPendingSale(payload);
@@ -461,18 +637,23 @@ export default function PosClient() {
       setPendingSyncCount(await countPendingSales());
       clearBill();
       applySoldStock(soldItems);
-      setMessage(`บันทึก Offline แล้ว รอ Sync: ${pendingSale.client_invoice_no}`);
+      setMessage(`บันทึก Offline แล้ว รอ Sync: ${pendingSale.client_invoice_no} / แต้มสมาชิกยังไม่ถูกบันทึก`);
       return;
     }
 
     try {
       checkoutIdempotencyKeyRef.current ??= crypto.randomUUID();
       const saleNo = await submitSaleOnline(payload, undefined, checkoutIdempotencyKeyRef.current);
+      let pointMessage = "";
+      if (customerForSale && pointsForSale > 0) {
+        const nextBalance = await awardMemberPoints(customerForSale, saleNo, pointsForSale);
+        pointMessage = ` / สะสม ${pointsForSale.toLocaleString("th-TH")} แต้ม รวม ${nextBalance.toLocaleString("th-TH")} แต้ม`;
+      }
       checkoutIdempotencyKeyRef.current = null;
       setLoading(false);
       clearBill();
       applySoldStock(soldItems);
-      setMessage(`บันทึกการขายสำเร็จ: ${saleNo}`);
+      setMessage(`บันทึกการขายสำเร็จ: ${saleNo}${pointMessage}`);
       await refreshSoldProducts(soldItems);
       await syncPendingSales();
     } catch (error) {
@@ -701,11 +882,75 @@ export default function PosClient() {
                     <UserRound size={16} className="text-slate-400" />
                     <input
                       className="w-full bg-transparent text-sm outline-none"
-                      placeholder="ชื่อลูกค้า"
-                      value={customerName}
-                      onChange={(event) => setCustomerName(event.target.value)}
+                      placeholder="ค้นลูกค้าด้วยเบอร์โทร"
+                      value={customerQuery}
+                      onChange={(event) => {
+                        setCustomerQuery(event.target.value);
+                        setSelectedCustomer(null);
+                        setCustomerName("");
+                      }}
                     />
                   </label>
+                  {selectedCustomer ? (
+                    <div className="flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{selectedCustomer.full_name}</div>
+                        <div className="text-xs">
+                          {selectedCustomer.phone ?? "-"} / {selectedCustomer.points_balance.toLocaleString("th-TH")} แต้ม
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearCustomer}
+                        className="shrink-0 rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-800"
+                      >
+                        ล้าง
+                      </button>
+                    </div>
+                  ) : customerQuery ? (
+                    <div className="max-h-36 overflow-y-auto rounded border border-slate-200 bg-white">
+                      {visibleCustomers.length ? (
+                        visibleCustomers.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => selectCustomer(customer)}
+                            className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-slate-50"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{customer.full_name}</span>
+                              <span className="block text-xs text-slate-500">
+                                {customer.phone ?? "-"} / {customer.member_code}
+                              </span>
+                            </span>
+                            <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                              เลือก
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="space-y-2 px-3 py-3">
+                          <div className="text-sm font-medium text-slate-700">ไม่พบเบอร์นี้ สมัครสมาชิกด่วน</div>
+                          <input
+                            className="h-9 w-full rounded border border-slate-300 px-3 text-sm outline-none focus:border-emerald-500"
+                            placeholder="ชื่อลูกค้า"
+                            value={customerName}
+                            onChange={(event) => setCustomerName(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void registerCustomer()}
+                            disabled={loading}
+                            className="h-9 w-full rounded bg-emerald-700 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            สมัครสมาชิก
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">พิมพ์เบอร์แล้วกดเลือกลูกค้า</div>
+                  )}
                   <label className="flex h-10 items-center gap-2 rounded border border-slate-300 bg-white px-3">
                     <ReceiptText size={16} className="text-slate-400" />
                     <input
@@ -886,6 +1131,19 @@ export default function PosClient() {
                     <span className="text-slate-600">ส่วนลด</span>
                     <span>{money(discountAmount)} บาท</span>
                   </div>
+                  {selectedCustomer ? (
+                    <div className="flex items-center justify-between text-emerald-800">
+                      <span>สมาชิก</span>
+                      <span>
+                        {selectedCustomer.full_name} / +{earnedPoints.toLocaleString("th-TH")} แต้ม
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-slate-500">
+                      <span>สมาชิก</span>
+                      <span>ไม่ได้เลือก</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-lg font-semibold">
                     <span>ยอดสุทธิ</span>
                     <span>{money(payableTotal)} บาท</span>

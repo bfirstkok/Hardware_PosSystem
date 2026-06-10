@@ -121,6 +121,7 @@ create table if not exists promotions (
   get_qty numeric(12,2) not null default 0 check (get_qty >= 0),
   min_purchase_amount numeric(12,2) not null default 0 check (min_purchase_amount >= 0),
   reward_text text,
+  reward_product_id bigint references products(id) on delete set null,
   starts_at date,
   ends_at date,
   priority integer not null default 10 check (priority >= 0),
@@ -130,15 +131,32 @@ create table if not exists promotions (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists promotion_trigger_products (
+  id bigint generated always as identity primary key,
+  promotion_id bigint not null references promotions(id) on delete cascade,
+  product_id bigint references products(id) on delete cascade,
+  required_qty numeric(12,2) not null default 0 check (required_qty >= 0),
+  required_amount numeric(12,2) not null default 0 check (required_amount >= 0),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists promotion_reward_products (
+  id bigint generated always as identity primary key,
+  promotion_id bigint not null references promotions(id) on delete cascade,
+  product_id bigint references products(id) on delete cascade,
+  reward_qty numeric(12,2) not null default 0 check (reward_qty >= 0),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists discount_rules (
   id bigint generated always as identity primary key,
   name text not null,
   code text unique,
   discount_type text not null default 'percent'
-    check (discount_type in ('percent', 'amount')),
-  value numeric(12,2) not null default 0 check (value >= 0),
-  applies_to text not null default 'bill'
-    check (applies_to in ('bill', 'coupon', 'member')),
+    check (discount_type = 'percent'),
+  value numeric(12,2) not null default 1 check (value >= 1 and value <= 100),
+  applies_to text not null default 'member'
+    check (applies_to = 'member'),
   min_purchase_amount numeric(12,2) not null default 0 check (min_purchase_amount >= 0),
   max_discount_amount numeric(12,2) not null default 0 check (max_discount_amount >= 0),
   requires_approval boolean not null default false,
@@ -150,6 +168,105 @@ create table if not exists discount_rules (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists customers (
+  id bigint generated always as identity primary key,
+  member_code text not null unique,
+  full_name text not null,
+  phone text,
+  email text,
+  address text,
+  customer_type text not null default 'retail'
+    check (customer_type in ('retail', 'contractor', 'company')),
+  member_status text not null default 'active'
+    check (member_status in ('active', 'paused', 'blocked')),
+  points_balance integer not null default 0 check (points_balance >= 0),
+  note text,
+  is_active boolean not null default true,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists customers_phone_unique_idx
+on customers (phone)
+where phone is not null and phone <> '';
+
+create index if not exists customers_search_idx
+on customers (full_name, member_code, phone);
+
+create table if not exists loyalty_settings (
+  id smallint primary key default 1 check (id = 1),
+  earn_amount numeric(12,2) not null default 100 check (earn_amount > 0),
+  earn_points integer not null default 1 check (earn_points > 0),
+  redeem_points integer not null default 100 check (redeem_points > 0),
+  redeem_amount numeric(12,2) not null default 10 check (redeem_amount > 0),
+  min_redeem_points integer not null default 100 check (min_redeem_points >= 0),
+  points_expire_months integer not null default 12 check (points_expire_months >= 0),
+  is_active boolean not null default true,
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
+insert into loyalty_settings (id)
+values (1)
+on conflict (id) do nothing;
+
+create table if not exists customer_point_transactions (
+  id bigint generated always as identity primary key,
+  customer_id bigint not null references customers(id) on delete cascade,
+  transaction_type text not null
+    check (transaction_type in ('earn', 'redeem', 'adjust')),
+  points integer not null check (points <> 0),
+  amount numeric(12,2) not null default 0 check (amount >= 0),
+  reference_no text,
+  note text,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists customer_point_transactions_customer_date_idx
+on customer_point_transactions (customer_id, created_at desc);
+
+create table if not exists product_price_history (
+  id bigint generated always as identity primary key,
+  product_id bigint not null references products(id) on delete restrict,
+  old_retail_price numeric(12,2) not null default 0 check (old_retail_price >= 0),
+  new_retail_price numeric(12,2) not null default 0 check (new_retail_price >= 0),
+  old_wholesale_price numeric(12,2) not null default 0 check (old_wholesale_price >= 0),
+  new_wholesale_price numeric(12,2) not null default 0 check (new_wholesale_price >= 0),
+  old_cost_price numeric(12,2) not null default 0 check (old_cost_price >= 0),
+  new_cost_price numeric(12,2) not null default 0 check (new_cost_price >= 0),
+  changed_by uuid references auth.users(id) on delete set null,
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists product_price_history_product_changed_idx
+on product_price_history (product_id, changed_at desc);
+
+create index if not exists stock_movements_type_date_idx
+on stock_movements (movement_type, movement_date desc);
+
+create index if not exists stock_movements_product_type_date_idx
+on stock_movements (product_id, movement_type, movement_date desc);
+
+create index if not exists promotions_reward_product_idx
+on promotions (reward_product_id);
+
+create index if not exists promotion_trigger_products_promotion_idx
+on promotion_trigger_products (promotion_id);
+
+create index if not exists promotion_trigger_products_product_idx
+on promotion_trigger_products (product_id);
+
+create index if not exists promotion_reward_products_promotion_idx
+on promotion_reward_products (promotion_id);
+
+create index if not exists promotion_reward_products_product_idx
+on promotion_reward_products (product_id);
+
+create index if not exists sale_items_sale_product_idx
+on sale_items (sale_id, product_id);
+
 create or replace function touch_updated_at()
 returns trigger
 language plpgsql
@@ -157,6 +274,28 @@ as $$
 begin
   new.updated_at = now();
   return new;
+end;
+$$;
+
+create or replace function current_staff_role()
+returns text
+language plpgsql
+security definer
+set search_path = public
+stable
+as $$
+declare
+  staff_role text;
+begin
+  if to_regclass('public.staff_profiles') is null then
+    return null;
+  end if;
+
+  execute 'select role from public.staff_profiles where user_id = $1 and account_status = ''active'' limit 1'
+  into staff_role
+  using auth.uid();
+
+  return staff_role;
 end;
 $$;
 
@@ -173,6 +312,16 @@ for each row execute function touch_updated_at();
 drop trigger if exists discount_rules_touch_updated_at on discount_rules;
 create trigger discount_rules_touch_updated_at
 before update on discount_rules
+for each row execute function touch_updated_at();
+
+drop trigger if exists customers_touch_updated_at on customers;
+create trigger customers_touch_updated_at
+before update on customers
+for each row execute function touch_updated_at();
+
+drop trigger if exists loyalty_settings_touch_updated_at on loyalty_settings;
+create trigger loyalty_settings_touch_updated_at
+before update on loyalty_settings
 for each row execute function touch_updated_at();
 
 create or replace function complete_pos_sale(payload jsonb)
@@ -397,6 +546,62 @@ begin
 end;
 $$;
 
+create or replace function award_customer_points(
+  request_customer_id bigint,
+  request_points integer,
+  request_amount numeric,
+  request_reference_no text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  next_balance integer;
+begin
+  if current_staff_role() not in ('cashier', 'manager', 'owner') then
+    raise exception 'Staff access required.';
+  end if;
+
+  if request_points <= 0 then
+    raise exception 'Points must be positive.';
+  end if;
+
+  update customers
+  set points_balance = points_balance + request_points
+  where id = request_customer_id
+    and is_active = true
+    and member_status = 'active'
+  returning points_balance into next_balance;
+
+  if next_balance is null then
+    raise exception 'Active member not found.';
+  end if;
+
+  insert into customer_point_transactions (
+    customer_id,
+    transaction_type,
+    points,
+    amount,
+    reference_no,
+    note,
+    created_by
+  )
+  values (
+    request_customer_id,
+    'earn',
+    request_points,
+    greatest(coalesce(request_amount, 0), 0),
+    nullif(request_reference_no, ''),
+    'POS sale',
+    auth.uid()
+  );
+
+  return next_balance;
+end;
+$$;
+
 alter table product_categories enable row level security;
 alter table units enable row level security;
 alter table products enable row level security;
@@ -405,7 +610,13 @@ alter table sale_items enable row level security;
 alter table payments enable row level security;
 alter table stock_movements enable row level security;
 alter table promotions enable row level security;
+alter table promotion_trigger_products enable row level security;
+alter table promotion_reward_products enable row level security;
 alter table discount_rules enable row level security;
+alter table customers enable row level security;
+alter table loyalty_settings enable row level security;
+alter table customer_point_transactions enable row level security;
+alter table product_price_history enable row level security;
 
 drop policy if exists "authenticated read categories" on product_categories;
 create policy "authenticated read categories" on product_categories
@@ -451,6 +662,26 @@ drop policy if exists "authenticated write promotions" on promotions;
 create policy "authenticated write promotions" on promotions
 for all to authenticated using (true) with check (true);
 
+drop policy if exists "staff read promotion trigger products" on promotion_trigger_products;
+create policy "staff read promotion trigger products" on promotion_trigger_products
+for select to authenticated using (current_staff_role() in ('cashier', 'manager', 'owner'));
+
+drop policy if exists "manager owner write promotion trigger products" on promotion_trigger_products;
+create policy "manager owner write promotion trigger products" on promotion_trigger_products
+for all to authenticated
+using (current_staff_role() in ('manager', 'owner'))
+with check (current_staff_role() in ('manager', 'owner'));
+
+drop policy if exists "staff read promotion reward products" on promotion_reward_products;
+create policy "staff read promotion reward products" on promotion_reward_products
+for select to authenticated using (current_staff_role() in ('cashier', 'manager', 'owner'));
+
+drop policy if exists "manager owner write promotion reward products" on promotion_reward_products;
+create policy "manager owner write promotion reward products" on promotion_reward_products
+for all to authenticated
+using (current_staff_role() in ('manager', 'owner'))
+with check (current_staff_role() in ('manager', 'owner'));
+
 drop policy if exists "authenticated read discount rules" on discount_rules;
 create policy "authenticated read discount rules" on discount_rules
 for select to authenticated using (true);
@@ -458,6 +689,58 @@ for select to authenticated using (true);
 drop policy if exists "authenticated write discount rules" on discount_rules;
 create policy "authenticated write discount rules" on discount_rules
 for all to authenticated using (true) with check (true);
+
+drop policy if exists "manager owner read customers" on customers;
+drop policy if exists "staff read active customers" on customers;
+create policy "staff read active customers" on customers
+for select to authenticated using (
+  current_staff_role() in ('cashier', 'manager', 'owner')
+  and is_active = true
+);
+
+drop policy if exists "manager owner write customers" on customers;
+create policy "manager owner write customers" on customers
+for all to authenticated
+using (current_staff_role() in ('manager', 'owner'))
+with check (current_staff_role() in ('manager', 'owner'));
+
+drop policy if exists "staff insert customers" on customers;
+create policy "staff insert customers" on customers
+for insert to authenticated
+with check (
+  current_staff_role() in ('cashier', 'manager', 'owner')
+  and is_active = true
+  and member_status = 'active'
+);
+
+drop policy if exists "manager owner read loyalty settings" on loyalty_settings;
+drop policy if exists "staff read loyalty settings" on loyalty_settings;
+create policy "staff read loyalty settings" on loyalty_settings
+for select to authenticated using (current_staff_role() in ('cashier', 'manager', 'owner'));
+
+drop policy if exists "owner write loyalty settings" on loyalty_settings;
+create policy "owner write loyalty settings" on loyalty_settings
+for all to authenticated
+using (current_staff_role() = 'owner')
+with check (current_staff_role() = 'owner');
+
+drop policy if exists "manager owner read point transactions" on customer_point_transactions;
+create policy "manager owner read point transactions" on customer_point_transactions
+for select to authenticated using (current_staff_role() in ('manager', 'owner'));
+
+drop policy if exists "manager owner write point transactions" on customer_point_transactions;
+create policy "manager owner write point transactions" on customer_point_transactions
+for all to authenticated
+using (current_staff_role() in ('manager', 'owner'))
+with check (current_staff_role() in ('manager', 'owner'));
+
+drop policy if exists "authenticated read product price history" on product_price_history;
+create policy "authenticated read product price history" on product_price_history
+for select to authenticated using (true);
+
+drop policy if exists "authenticated insert product price history" on product_price_history;
+create policy "authenticated insert product price history" on product_price_history
+for insert to authenticated with check (true);
 
 insert into product_categories (name)
 values

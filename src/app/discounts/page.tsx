@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BadgePercent, Calculator, Pencil, Power, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 import { campaignStatusLabel, discountSummary, estimateDiscount, money } from "@/lib/promotion-rules.mjs";
 
@@ -9,9 +10,9 @@ type DiscountRuleRow = {
   id: number;
   name: string;
   code: string | null;
-  discount_type: "percent" | "amount";
+  discount_type: "percent";
   value: number;
-  applies_to: "bill" | "coupon" | "member";
+  applies_to: "member";
   min_purchase_amount: number;
   max_discount_amount: number;
   requires_approval: boolean;
@@ -19,25 +20,28 @@ type DiscountRuleRow = {
   ends_at: string | null;
   is_active: boolean;
 };
+type CampaignUser = { role?: string | null } | null | undefined;
+
+function canManageCampaigns(user: CampaignUser) {
+  return user?.role === "manager" || user?.role === "owner";
+}
+
+function assertCanManageCampaigns(user: CampaignUser) {
+  if (!canManageCampaigns(user)) discountError("ไม่มีสิทธิ์แก้ไขข้อมูลโปรโมชั่นและส่วนลด");
+}
 
 const discountTypeLabels: Record<DiscountRuleRow["discount_type"], string> = {
   percent: "เปอร์เซ็นต์",
-  amount: "จำนวนเงิน",
 };
 
 const appliesToLabels: Record<DiscountRuleRow["applies_to"], string> = {
-  bill: "ท้ายบิล",
-  coupon: "คูปอง",
   member: "สมาชิก",
 };
 
 async function requireUser() {
+  const staff = await requireRouteAccess("/discounts");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) redirect("/login");
-
-  return { supabase, userId: userData.user.id };
+  return { supabase, userId: staff.user_id, staff };
 }
 
 function discountError(message: string) {
@@ -70,16 +74,12 @@ function idField(formData: FormData) {
   return id;
 }
 
-function discountTypeField(formData: FormData) {
-  const value = formData.get("discount_type")?.toString();
-  if (value === "percent" || value === "amount") return value;
-  discountError("ประเภทส่วนลดไม่ถูกต้อง");
+function discountTypeField() {
+  return "percent" as const;
 }
 
-function appliesToField(formData: FormData) {
-  const value = formData.get("applies_to")?.toString();
-  if (value === "bill" || value === "coupon" || value === "member") return value;
-  discountError("ช่องทางใช้งานส่วนลดไม่ถูกต้อง");
+function appliesToField() {
+  return "member" as const;
 }
 
 function dateField(formData: FormData, key: string) {
@@ -92,18 +92,19 @@ function discountPayload(formData: FormData, userId?: string) {
   const endsAt = dateField(formData, "ends_at");
   if (startsAt && endsAt && startsAt > endsAt) discountError("วันสิ้นสุดต้องไม่น้อยกว่าวันเริ่ม");
 
-  const discountType = discountTypeField(formData);
+  const discountType = discountTypeField();
   const value = numberField(formData, "value", "มูลค่าส่วนลด");
-  if (discountType === "percent" && value > 100) discountError("ส่วนลดเปอร์เซ็นต์ต้องไม่เกิน 100%");
+  if (discountType === "percent" && (value < 1 || value > 100)) discountError("ส่วนลดเปอร์เซ็นต์ต้องอยู่ระหว่าง 1-100%");
+  const hasMaxDiscount = formData.get("has_max_discount") === "on";
 
   return {
     name: textField(formData, "name", "ชื่อส่วนลด", 120),
     code: optionalCodeField(formData),
     discount_type: discountType,
     value,
-    applies_to: appliesToField(formData),
+    applies_to: appliesToField(),
     min_purchase_amount: numberField(formData, "min_purchase_amount", "ยอดซื้อขั้นต่ำ"),
-    max_discount_amount: numberField(formData, "max_discount_amount", "เพดานส่วนลด"),
+    max_discount_amount: hasMaxDiscount ? numberField(formData, "max_discount_amount", "เพดานส่วนลด") : 0,
     requires_approval: formData.get("requires_approval") === "on",
     starts_at: startsAt,
     ends_at: endsAt,
@@ -115,7 +116,8 @@ function discountPayload(formData: FormData, userId?: string) {
 async function createDiscountRule(formData: FormData) {
   "use server";
 
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId, staff } = await requireUser();
+  assertCanManageCampaigns(staff);
   const { error } = await supabase.from("discount_rules").insert(discountPayload(formData, userId));
   if (error) discountError(error.code === "23505" ? "รหัสคูปองซ้ำ" : "บันทึกส่วนลดไม่สำเร็จ");
 
@@ -125,7 +127,8 @@ async function createDiscountRule(formData: FormData) {
 async function updateDiscountRule(formData: FormData) {
   "use server";
 
-  const { supabase } = await requireUser();
+  const { supabase, staff } = await requireUser();
+  assertCanManageCampaigns(staff);
   const id = idField(formData);
   const { error } = await supabase.from("discount_rules").update(discountPayload(formData)).eq("id", id);
   if (error) discountError(error.code === "23505" ? "รหัสคูปองซ้ำ" : "แก้ไขส่วนลดไม่สำเร็จ");
@@ -136,7 +139,8 @@ async function updateDiscountRule(formData: FormData) {
 async function toggleDiscountRule(formData: FormData) {
   "use server";
 
-  const { supabase } = await requireUser();
+  const { supabase, staff } = await requireUser();
+  assertCanManageCampaigns(staff);
   const id = idField(formData);
   const isActive = formData.get("next_active") === "true";
   const { error } = await supabase.from("discount_rules").update({ is_active: isActive }).eq("id", id);
@@ -159,62 +163,65 @@ function statusClass(label: string) {
   return "bg-red-50 text-red-700";
 }
 
-function DiscountFields({ item }: { item?: DiscountRuleRow }) {
+function DiscountFields({ item, disabled = false }: { item?: DiscountRuleRow; disabled?: boolean }) {
+  const hasMaxDiscount = Number(item?.max_discount_amount ?? 0) > 0;
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <fieldset disabled={disabled} className="grid gap-3 disabled:opacity-60 md:grid-cols-2 xl:grid-cols-4">
+      <input type="hidden" name="discount_type" value="percent" />
       <label className="text-sm font-medium md:col-span-2">
         ชื่อส่วนลด
-        <input name="name" required defaultValue={item?.name} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+        <input disabled={disabled} name="name" required defaultValue={item?.name} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
       </label>
       <label className="text-sm font-medium">
         รหัสคูปอง
-        <input name="code" defaultValue={item?.code ?? ""} placeholder="เช่น SAVE10" className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 uppercase" />
+        <input disabled={disabled} name="code" defaultValue={item?.code ?? ""} placeholder="เช่น SAVE10" className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3 uppercase" />
       </label>
       <label className="text-sm font-medium">
         ใช้กับ
-        <select name="applies_to" defaultValue={item?.applies_to ?? "bill"} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3">
+        <select disabled={disabled} name="applies_to" defaultValue={item?.applies_to ?? "member"} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3">
           {Object.entries(appliesToLabels).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
       </label>
       <label className="text-sm font-medium">
-        ประเภท
-        <select name="discount_type" defaultValue={item?.discount_type ?? "percent"} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3">
-          {Object.entries(discountTypeLabels).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="text-sm font-medium">
         มูลค่า
-        <input name="value" type="number" min="0" step="0.01" defaultValue={Number(item?.value ?? 0)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+        <input disabled={disabled} name="value" type="number" min="1" max="100" step="0.01" defaultValue={Number(item?.value ?? 1)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
       </label>
       <label className="text-sm font-medium">
         ยอดซื้อขั้นต่ำ
-        <input name="min_purchase_amount" type="number" min="0" step="0.01" defaultValue={Number(item?.min_purchase_amount ?? 0)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+        <input disabled={disabled} name="min_purchase_amount" type="number" min="0" step="0.01" defaultValue={Number(item?.min_purchase_amount ?? 0)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
       </label>
-      <label className="text-sm font-medium">
-        เพดานส่วนลด
-        <input name="max_discount_amount" type="number" min="0" step="0.01" defaultValue={Number(item?.max_discount_amount ?? 0)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
-      </label>
+      <div className="text-sm font-medium md:col-span-2 [&:has(input:checked)_.max-discount-field]:block">
+        <label className="flex min-h-10 items-center gap-2 pt-7">
+          <input disabled={disabled} name="has_max_discount" type="checkbox" defaultChecked={hasMaxDiscount} className="size-4 rounded border-slate-300" />
+          <span>จำกัดส่วนลดสูงสุด</span>
+          <span className="text-xs font-normal text-slate-500">ไม่ติ๊ก = ลดตามเปอร์เซ็นต์ล้วน</span>
+        </label>
+        <div className="max-discount-field hidden">
+          <label className="text-sm font-medium">
+            เพดานส่วนลด
+            <input disabled={disabled} name="max_discount_amount" type="number" min="0" step="0.01" defaultValue={Number(item?.max_discount_amount ?? 0)} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+          </label>
+        </div>
+      </div>
       <label className="text-sm font-medium">
         เริ่ม
-        <input name="starts_at" type="date" defaultValue={item?.starts_at ?? ""} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+        <input disabled={disabled} name="starts_at" type="date" defaultValue={item?.starts_at ?? ""} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
       </label>
       <label className="text-sm font-medium">
         สิ้นสุด
-        <input name="ends_at" type="date" defaultValue={item?.ends_at ?? ""} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
+        <input disabled={disabled} name="ends_at" type="date" defaultValue={item?.ends_at ?? ""} className="mt-2 h-10 w-full rounded-md border border-slate-300 px-3" />
       </label>
       <label className="flex min-h-10 items-center gap-2 pt-7 text-sm font-medium">
-        <input name="requires_approval" type="checkbox" defaultChecked={item?.requires_approval ?? false} className="size-4 rounded border-slate-300" />
+        <input disabled={disabled} name="requires_approval" type="checkbox" defaultChecked={item?.requires_approval ?? false} className="size-4 rounded border-slate-300" />
         ต้องอนุมัติ
       </label>
       <label className="flex min-h-10 items-center gap-2 pt-7 text-sm font-medium">
-        <input name="is_active" type="checkbox" defaultChecked={item?.is_active ?? true} className="size-4 rounded border-slate-300" />
+        <input disabled={disabled} name="is_active" type="checkbox" defaultChecked={item?.is_active ?? true} className="size-4 rounded border-slate-300" />
         เปิดใช้งาน
       </label>
-    </div>
+    </fieldset>
   );
 }
 
@@ -224,7 +231,7 @@ export default async function DiscountsPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const notice = await searchParams;
-  const { supabase } = await requireUser();
+  const { supabase, staff } = await requireUser();
   const { data, error } = await supabase
     .from("discount_rules")
     .select("id, name, code, discount_type, value, applies_to, min_purchase_amount, max_discount_amount, requires_approval, starts_at, ends_at, is_active")
@@ -232,6 +239,18 @@ export default async function DiscountsPage({
     .order("id", { ascending: false });
 
   const discounts = (data ?? []) as DiscountRuleRow[];
+  const canManage = canManageCampaigns(staff);
+  const now = new Date();
+  const activeStatus = campaignStatusLabel({ is_active: true }, now);
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthDiscounts = discounts.filter((item) => {
+    const startsAt = item.starts_at ? new Date(`${item.starts_at}T00:00:00+07:00`) : null;
+    const endsAt = item.ends_at ? new Date(`${item.ends_at}T23:59:59+07:00`) : null;
+    return (!startsAt || startsAt <= now) && (!endsAt || endsAt >= now) && (!startsAt || (startsAt.getMonth() === currentMonth && startsAt.getFullYear() === currentYear));
+  });
+  const expiredCodes = discounts.filter((item) => item.code && item.ends_at && new Date(`${item.ends_at}T23:59:59+07:00`) < now);
+  const recommendedDiscount = discounts.find((item) => campaignStatusLabel(item, now) === activeStatus) ?? discounts.find((item) => item.is_active);
   const activeCount = discounts.filter((item) => campaignStatusLabel(item) === "กำลังใช้งาน").length;
   const approvalCount = discounts.filter((item) => item.requires_approval).length;
   const sampleDiscount = Math.max(0, ...discounts.map((item) => estimateDiscount(item, 1000)));
@@ -250,6 +269,19 @@ export default async function DiscountsPage({
         </div>
 
         {notice.error ? <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{notice.error}</div> : null}
+        {!canManage ? (
+          <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">ไม่มีสิทธิ์แก้ไข: บัญชีพนักงานดูได้อย่างเดียว ปุ่มบันทึก/แก้ไข/เปิดปิดถูกล็อก</div>
+        ) : null}
+        {!monthDiscounts.length ? (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">เดือนนี้ยังไม่มีส่วนลดที่ใช้งาน แนะนำสร้างส่วนลดสมาชิก 5-10% แบบไม่จำกัดเพดาน</div>
+        ) : null}
+        {expiredCodes.length ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">โค้ดหมดอายุ: {expiredCodes.map((item) => item.code).join(", ")}</div>
+        ) : null}
+        {recommendedDiscount ? (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">แนะนำตอนนี้: {recommendedDiscount.name} เหมาะกับบิลตั้งแต่ {money(recommendedDiscount.min_purchase_amount)} บาท</div>
+        ) : null}
+
         {error ? (
           <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             ยังไม่พบตารางส่วนลด ให้รัน <span className="font-mono">supabase/migrations/20260518_promotions_discounts.sql</span> ใน Supabase SQL Editor ก่อนใช้งานจริง
@@ -328,12 +360,12 @@ export default async function DiscountsPage({
               <h2 className="font-semibold">เพิ่มส่วนลด</h2>
               <p className="text-sm text-slate-500">ตั้งค่าส่วนลดท้ายบิล คูปอง สมาชิก และสิทธิ์อนุมัติ</p>
             </div>
-            <button type="submit" className="h-10 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800">
+            <button type="submit" disabled={!canManage} className="h-10 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">
               บันทึกส่วนลด
             </button>
           </div>
           <div className="mt-4">
-            <DiscountFields />
+            <DiscountFields disabled={!canManage} />
           </div>
         </form>
 
@@ -380,6 +412,7 @@ export default async function DiscountsPage({
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right">
                           <div className="flex justify-end gap-2">
+                        {canManage ? (
                         <details className="group">
                           <summary className="inline-flex h-10 cursor-pointer list-none items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50">
                             <Pencil size={16} /> แก้ไข
@@ -396,14 +429,19 @@ export default async function DiscountsPage({
                                   บันทึกแก้ไข
                                 </button>
                               </div>
-                              <DiscountFields item={item} />
+                              <DiscountFields item={item} disabled={!canManage} />
                             </form>
                           </div>
                         </details>
+                        ) : (
+                          <button type="button" disabled title="ไม่มีสิทธิ์แก้ไข" className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-md border border-slate-200 bg-slate-100 px-3 text-sm font-medium text-slate-400">
+                            <Pencil size={16} /> แก้ไข
+                          </button>
+                        )}
                         <form action={toggleDiscountRule}>
                           <input type="hidden" name="id" value={item.id} />
                           <input type="hidden" name="next_active" value={String(!item.is_active)} />
-                          <button type="submit" className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50">
+                          <button type="submit" disabled={!canManage} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">
                             <Power size={16} /> {item.is_active ? "ปิด" : "เปิด"}
                           </button>
                         </form>
