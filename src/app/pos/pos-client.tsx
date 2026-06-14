@@ -25,6 +25,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import type { CurrentStaff } from "@/lib/staff-session";
 import {
   addPendingSale,
   countPendingSales,
@@ -100,7 +101,7 @@ function productInitials(name: string) {
     .toUpperCase();
 }
 
-export default function PosClient() {
+export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLElement>(null);
   const checkoutIdempotencyKeyRef = useRef<string | null>(null);
@@ -129,19 +130,23 @@ export default function PosClient() {
 
   useEffect(() => {
     async function loadProducts() {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("products")
-        .select(productSelect)
-        .eq("is_active", true)
-        .order("name");
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("products")
+          .select(productSelect)
+          .eq("is_active", true)
+          .order("name");
 
-      if (error) {
-        setMessage(error.message);
-        return;
+        if (error) {
+          setMessage(error.message);
+          return;
+        }
+
+        setProducts((data ?? []) as unknown as Product[]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "โหลดสินค้าไม่สำเร็จ");
       }
-
-      setProducts((data ?? []) as unknown as Product[]);
     }
 
     loadProducts();
@@ -490,7 +495,7 @@ export default function PosClient() {
       setIsOnline(false);
     }
 
-    void refreshPendingCount();
+    void refreshPendingCount().catch(() => undefined);
     const syncTimer = window.setTimeout(() => {
       setIsOnline(navigator.onLine);
       if (navigator.onLine) void syncPendingSales();
@@ -608,7 +613,7 @@ export default function PosClient() {
   }
 
   return (
-    <AppShell>
+    <AppShell currentStaff={currentStaff}>
       <main ref={pageRef} className="min-h-screen bg-slate-100 text-slate-950">
         <div className={`mx-auto flex w-full flex-col gap-2 p-2 ${isFullscreen ? "h-screen" : ""}`}>
           <div className="overflow-hidden rounded border border-slate-200 bg-white text-slate-950 shadow-sm">

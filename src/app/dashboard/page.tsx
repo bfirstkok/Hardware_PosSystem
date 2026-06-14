@@ -1,14 +1,10 @@
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
+import { requireRouteAccess } from "@/lib/staff-session";
 
 export default async function DashboardPage() {
+  const staff = await requireRouteAccess("/dashboard");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const [{ count: productCount }, { count: saleCount }, { data: lowStock }] = await Promise.all([
     supabase.from("products").select("id", { count: "exact", head: true }),
@@ -23,10 +19,10 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div>
-          <p className="text-sm text-slate-500">เข้าสู่ระบบด้วย {userData.user.email}</p>
+          <p className="text-sm text-slate-500">เข้าสู่ระบบด้วย {staff.employee_code}</p>
           <h1 className="mt-1 text-2xl font-semibold">Dashboard</h1>
         </div>
 

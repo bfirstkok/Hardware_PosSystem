@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { AppShell } from "@/components/app-shell";
+import { requireActionAccess, requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type ProductRow = {
@@ -29,6 +30,12 @@ type UnitRow = {
   short_name: string;
 };
 
+type ProductPrice = {
+  retail_price: number;
+  wholesale_price: number;
+  cost_price: number;
+};
+
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const imageExtensions: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -37,15 +44,9 @@ const imageExtensions: Record<string, string> = {
 };
 const maxImageSize = 5 * 1024 * 1024;
 
-async function requireUser() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
-
-  return supabase;
+async function requireProductAction(action: "products.create" | "products.update" | "products.delete") {
+  await requireActionAccess(action);
+  return createClient();
 }
 
 function productError(message: string) {
@@ -153,7 +154,7 @@ async function uploadProductImage(
 async function createProduct(formData: FormData) {
   "use server";
 
-  const supabase = await requireUser();
+  const supabase = await requireProductAction("products.create");
 
   const categoryId = optionalIdField(formData, "category_id", "หมวด");
   const unitId = optionalIdField(formData, "base_unit_id", "หน่วย");
@@ -220,7 +221,8 @@ async function createProduct(formData: FormData) {
 async function updateProduct(formData: FormData) {
   "use server";
 
-  const supabase = await requireUser();
+  const supabase = await requireProductAction("products.update");
+  const staff = await requireRouteAccess("/products");
   const id = positiveIdField(formData, "id", "สินค้า");
   const categoryId = optionalIdField(formData, "category_id", "หมวด");
   const unitId = optionalIdField(formData, "base_unit_id", "หน่วย");
@@ -236,6 +238,16 @@ async function updateProduct(formData: FormData) {
   const uploadResult = await uploadProductImage(supabase, sku, imageFile);
   if (uploadResult.imageUrl) {
     imageUrl = uploadResult.imageUrl;
+  }
+
+  const { data: currentProduct, error: currentProductError } = await supabase
+    .from("products")
+    .select("retail_price, wholesale_price, cost_price")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (currentProductError || !currentProduct) {
+    productError("ไม่พบสินค้าที่ต้องการแก้ไข");
   }
 
   const { error: updateError } = await supabase
@@ -256,10 +268,34 @@ async function updateProduct(formData: FormData) {
     productError("แก้ไขสินค้าไม่สำเร็จ");
   }
 
+  const oldPrice = currentProduct as ProductPrice;
+  const priceChanged =
+    Number(oldPrice.retail_price) !== retailPrice ||
+    Number(oldPrice.wholesale_price) !== wholesalePrice ||
+    Number(oldPrice.cost_price) !== costPrice;
+
+  if (priceChanged) {
+    const { error: priceHistoryError } = await supabase.from("product_price_history").insert({
+      product_id: id,
+      old_retail_price: oldPrice.retail_price,
+      new_retail_price: retailPrice,
+      old_wholesale_price: oldPrice.wholesale_price,
+      new_wholesale_price: wholesalePrice,
+      old_cost_price: oldPrice.cost_price,
+      new_cost_price: costPrice,
+      changed_by: staff.user_id,
+    });
+
+    if (priceHistoryError) {
+      productError("บันทึกประวัติราคาไม่สำเร็จ");
+    }
+  }
+
   revalidatePath("/products");
   revalidatePath("/pos");
   revalidatePath("/barcodes");
   revalidatePath("/dashboard");
+  revalidatePath("/product-history");
 
   if (uploadResult.warning) {
     redirect(`/products?imageUpload=${encodeURIComponent(uploadResult.warning)}`);
@@ -269,7 +305,7 @@ async function updateProduct(formData: FormData) {
 async function deactivateProduct(formData: FormData) {
   "use server";
 
-  const supabase = await requireUser();
+  const supabase = await requireProductAction("products.delete");
   const id = positiveIdField(formData, "id", "สินค้า");
 
   const { error: updateError } = await supabase
@@ -293,12 +329,8 @@ export default async function ProductsPage({
   searchParams: Promise<{ error?: string; imageUpload?: string }>;
 }) {
   const notice = await searchParams;
+  const staff = await requireRouteAccess("/products");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const [{ data, error }, { data: categoryData }, { data: unitData }] = await Promise.all([
     supabase
@@ -317,7 +349,7 @@ export default async function ProductsPage({
   const units = (unitData ?? []) as UnitRow[];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

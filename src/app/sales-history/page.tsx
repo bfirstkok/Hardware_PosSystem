@@ -1,7 +1,8 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { CalendarDays, ChevronDown, CreditCard, Download, ReceiptText, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { pageHref, paginationState, parsePage } from "@/lib/pagination.mjs";
+import { requireRouteAccess } from "@/lib/staff-session";
 import { createClient } from "@/lib/supabase/server";
 
 type SaleItemRow = {
@@ -85,6 +86,7 @@ const statusFilterOptions: { value: StatusFilter; label: string }[] = [
 
 const voidStatuses = ["void", "voided", "canceled", "cancelled"];
 const refundStatuses = ["refund", "refunded"];
+const PAGE_SIZE = 200;
 const saleSelectBase =
   "id, sale_no, sale_date, subtotal, discount_amount, total_amount, payment_method, status, created_by, sale_items(id, qty, unit_price, line_total, products(sku, name)), payments(id, payment_method, amount, reference_no)";
 const saleSelectWithOffline =
@@ -269,14 +271,11 @@ export default async function SalesHistoryPage({
     to?: string;
     payment?: string;
     status?: string;
+    page?: string;
   }>;
 }) {
+  const staff = await requireRouteAccess("/sales-history");
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    redirect("/login");
-  }
 
   const params = await searchParams;
   const selectedPeriod = periodOptions.some((option) => option.value === params.period)
@@ -284,6 +283,7 @@ export default async function SalesHistoryPage({
     : "day";
   const selectedPayment = isPaymentFilter(params.payment) ? params.payment : "all";
   const selectedStatus = isStatusFilter(params.status) ? params.status : "all";
+  const selectedPage = parsePage(params.page);
   const selectedCustomRange = customRange(params.from, params.to);
   const range = selectedCustomRange ?? periodRange(selectedPeriod);
   const rangeLabel = formatRangeLabel(
@@ -293,6 +293,13 @@ export default async function SalesHistoryPage({
   );
   const fromValue = selectedCustomRange ? formatDateInput(range.start) : (params.from ?? "");
   const toValue = selectedCustomRange ? formatDateInput(addDays(range.end, -1)) : (params.to ?? "");
+  const paginationParams = {
+    period: selectedCustomRange ? undefined : selectedPeriod,
+    from: selectedCustomRange ? fromValue : undefined,
+    to: selectedCustomRange ? toValue : undefined,
+    payment: selectedPayment !== "all" ? selectedPayment : undefined,
+    status: selectedStatus !== "all" ? selectedStatus : undefined,
+  };
 
   const periodHref = (period: Period) => {
     const nextParams = new URLSearchParams({ period });
@@ -303,10 +310,10 @@ export default async function SalesHistoryPage({
     return `/sales-history?${nextParams.toString()}`;
   };
 
-  function createSalesQuery(selectColumns: string) {
+  function createSalesQuery(selectColumns: string, from: number, to: number) {
     let query = supabase
       .from("sales")
-      .select(selectColumns)
+      .select(selectColumns, { count: "exact" })
       .gte("sale_date", range.start.toISOString())
       .lt("sale_date", range.end.toISOString());
 
@@ -322,10 +329,11 @@ export default async function SalesHistoryPage({
       query = query.in("status", refundStatuses);
     }
 
-    return query.order("sale_date", { ascending: false }).limit(200);
+    return query.order("sale_date", { ascending: false }).range(from, to);
   }
 
-  let { data, error } = await createSalesQuery(saleSelectWithOffline);
+  const initialPage = paginationState({ page: selectedPage, pageSize: PAGE_SIZE, totalItems: selectedPage * PAGE_SIZE });
+  let { data, error, count } = await createSalesQuery(saleSelectWithOffline, initialPage.from, initialPage.to);
   let offlineColumnsMissing = false;
 
   if (
@@ -334,10 +342,20 @@ export default async function SalesHistoryPage({
       error.message.includes("client_invoice_no") ||
       error.message.includes("offline_created_at"))
   ) {
-    const fallback = await createSalesQuery(saleSelectBase);
+    const fallback = await createSalesQuery(saleSelectBase, initialPage.from, initialPage.to);
     data = fallback.data;
     error = fallback.error;
+    count = fallback.count;
     offlineColumnsMissing = !fallback.error;
+  }
+
+  const totalSales = count ?? 0;
+  const pagination = paginationState({ page: selectedPage, pageSize: PAGE_SIZE, totalItems: totalSales });
+  if (!error && selectedPage !== pagination.currentPage) {
+    const current = await createSalesQuery(saleSelectWithOffline, pagination.from, pagination.to);
+    data = current.data;
+    error = current.error;
+    count = current.count;
   }
 
   const sales = ((data ?? []) as unknown as Partial<SaleRow>[]).map((sale) => ({
@@ -353,7 +371,7 @@ export default async function SalesHistoryPage({
   const hasActiveFilters = selectedCustomRange || selectedPayment !== "all" || selectedStatus !== "all";
 
   return (
-    <AppShell>
+    <AppShell currentStaff={staff}>
       <main className="p-4 lg:p-6">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -363,7 +381,7 @@ export default async function SalesHistoryPage({
             </div>
             <div className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
               <ReceiptText className="h-4 w-4" aria-hidden="true" />
-              {sales.length.toLocaleString("th-TH")} บิล
+              {totalSales.toLocaleString("th-TH")} บิล
             </div>
           </div>
 
@@ -375,7 +393,7 @@ export default async function SalesHistoryPage({
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-slate-950">{rangeLabel}</div>
-                  <div className="mt-1 text-xs text-slate-500">แสดงสูงสุด 200 บิล</div>
+                  <div className="mt-1 text-xs text-slate-500">แสดงหน้า {pagination.currentPage.toLocaleString("th-TH")} จาก {pagination.pageCount.toLocaleString("th-TH")}</div>
                 </div>
               </div>
               <div className="grid grid-cols-4 rounded-md border border-slate-300 bg-white p-1">
@@ -489,7 +507,7 @@ export default async function SalesHistoryPage({
           ) : null}
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="จำนวนบิล" value={`${sales.length.toLocaleString("th-TH")} บิล`} />
+            <MetricCard label="จำนวนบิล" value={`${totalSales.toLocaleString("th-TH")} บิล`} />
             <MetricCard label="บิลสำเร็จ" value={`${completedSaleCount.toLocaleString("th-TH")} บิล`} />
             <MetricCard label="ยอดขายสุทธิ" value={`${money(totalRevenue)} บาท`} emphasis />
             <MetricCard
@@ -553,7 +571,7 @@ export default async function SalesHistoryPage({
                         <StatusBadge status={sale.status} />
                       </div>
                       <div className="truncate text-slate-600">
-                        {cashierLabel(sale.created_by, userData.user.id, userData.user.email)}
+                        {cashierLabel(sale.created_by, staff.user_id, staff.email)}
                       </div>
                       <div className="font-semibold text-slate-950 lg:text-right">
                         {money(sale.total_amount)} บาท
@@ -651,6 +669,17 @@ export default async function SalesHistoryPage({
                 </div>
               )}
             </div>
+
+            <PaginationBar
+              currentPage={pagination.currentPage}
+              pageCount={pagination.pageCount}
+              pageSize={PAGE_SIZE}
+              totalItems={totalSales}
+              previousHref={pageHref("/sales-history", paginationParams, pagination.currentPage - 1)}
+              nextHref={pageHref("/sales-history", paginationParams, pagination.currentPage + 1)}
+              hasPrevious={pagination.hasPrevious}
+              hasNext={pagination.hasNext}
+            />
           </section>
         </div>
       </main>
@@ -664,6 +693,56 @@ function MetricCard({ label, value, emphasis = false }: { label: string; value: 
       <div className="text-sm text-slate-500">{label}</div>
       <div className={`mt-2 text-xl font-semibold ${emphasis ? "text-emerald-800" : "text-slate-950"}`}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function PaginationBar({
+  currentPage,
+  pageCount,
+  pageSize,
+  totalItems,
+  previousHref,
+  nextHref,
+  hasPrevious,
+  hasNext,
+}: {
+  currentPage: number;
+  pageCount: number;
+  pageSize: number;
+  totalItems: number;
+  previousHref: string;
+  nextHref: string;
+  hasPrevious: boolean;
+  hasNext: boolean;
+}) {
+  const startItem = totalItems ? (currentPage - 1) * pageSize + 1 : 0;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-slate-500">
+        แสดง {startItem.toLocaleString("th-TH")}-{endItem.toLocaleString("th-TH")} จาก {totalItems.toLocaleString("th-TH")} รายการ
+      </div>
+      <div className="flex items-center gap-2">
+        {hasPrevious ? (
+          <Link href={previousHref} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
+            ก่อนหน้า
+          </Link>
+        ) : (
+          <span className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium text-slate-300">ก่อนหน้า</span>
+        )}
+        <span className="px-2 text-slate-500">
+          หน้า {currentPage.toLocaleString("th-TH")} / {pageCount.toLocaleString("th-TH")}
+        </span>
+        {hasNext ? (
+          <Link href={nextHref} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
+            ถัดไป
+          </Link>
+        ) : (
+          <span className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium text-slate-300">ถัดไป</span>
+        )}
       </div>
     </div>
   );
