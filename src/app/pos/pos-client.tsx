@@ -7,6 +7,7 @@ import {
   Barcode,
   Boxes,
   Calculator,
+  Check,
   CreditCard,
   CalendarClock,
   Minus,
@@ -144,6 +145,9 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
   const [isOnline, setIsOnline] = useState(true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<"pending" | "completed">("pending");
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [paymentId, setPaymentId] = useState<number | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
@@ -214,6 +218,11 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
   const payableTotal = Math.max(0, subtotal - discountAmount);
   const changeAmount = paymentMethod === "cash" ? Math.max(0, cashReceived - payableTotal) : 0;
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
+
+  // Sync display state after all values are calculated
+  useEffect(() => {
+    updateDisplayState();
+  }, [cart, subtotal, discountAmount, payableTotal, changeAmount, paymentMethod, qrCode, paymentStatus, cashReceived, paymentId]);
 
   function selectedPrice(product: Product) {
     if (priceMode === "wholesale" && Number(product.wholesale_price) > 0) {
@@ -311,7 +320,97 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
     setDiscountAmount(0);
     setCashReceived(0);
     setMessage("");
+    setPaymentStatus("pending");
+    setQrCode(null);
     searchRef.current?.focus();
+  }
+
+  function updateDisplayState() {
+    const state = {
+      items: cart.map((item) => ({
+        productId: item.id,
+        name: item.name,
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+      })),
+      subtotal,
+      discountAmount,
+      totalAmount: payableTotal,
+      paidAmount: paymentMethod === "cash" ? cashReceived : payableTotal,
+      changeAmount,
+      paymentMethod,
+      qrCode,
+      paymentStatus,
+      paymentId,
+      customerMessage:
+        paymentMethod === "cash"
+          ? "ใส่เงินสดแล้วตรวจสอบยอดเงินทอน"
+          : paymentMethod === "qr"
+            ? "สแกน QR PromptPay เพื่อชำระเงิน"
+            : "กำลังรอการชำระเงิน",
+    };
+    localStorage.setItem("pos_display_state", JSON.stringify(state));
+  }
+
+  async function processPayment() {
+    if (!cart.length || loading) return;
+
+    setMessage("");
+    setLoading(true);
+
+    try {
+      // Validate cash payment
+      if (paymentMethod === "cash" && cashReceived < payableTotal) {
+        setMessage("รับเงินสดน้อยกว่ายอดสุทธิ");
+        setLoading(false);
+        return;
+      }
+
+      // For QR/Transfer: create payment record first
+      if (paymentMethod === "qr" || paymentMethod === "transfer") {
+        const payRes = await fetch("/api/payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "create",
+            sale_id: null, // Will link after recordSale
+            amount: payableTotal,
+            payment_method: paymentMethod,
+            reference_no: referenceNo || null,
+            provider: paymentMethod === "qr" ? "promptpay" : "bank_transfer",
+          }),
+        });
+        const payData = await payRes.json();
+        if (!payRes.ok) throw new Error(payData.error);
+        setPaymentId(payData.payment?.id ?? null);
+      }
+
+      // Generate QR for QR payment
+      if (paymentMethod === "qr") {
+        const qrRes = await fetch("/api/promtpay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount: payableTotal }),
+        });
+        const qrData = await qrRes.json();
+        if (!qrRes.ok) throw new Error(qrData.error);
+        setQrCode(qrData.qrCode);
+      }
+
+      // For cash: mark as completed immediately
+      if (paymentMethod === "cash") {
+        setPaymentStatus("completed");
+        setMessage("ชำระเงินเรียบร้อย กดบันทึกบิลเพื่อเสร็จสิ้น");
+      } else {
+        // For QR/Transfer: keep pending, wait for verification
+        setPaymentStatus("completed");
+        setMessage("รอการชำระเงิน...");
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function salePayload(): PosSalePayload {
@@ -418,6 +517,32 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
     };
   }, [syncPendingSales]);
 
+  useEffect(() => {
+    const handlePaymentVerified = () => {
+      const verified = localStorage.getItem("pos_payment_verified");
+      if (verified && paymentStatus === "completed") {
+        try {
+          const data = JSON.parse(verified);
+          if (data.status === "succeeded" && data.paymentId === paymentId) {
+            // Auto-record sale when payment is verified
+            void recordSale();
+            localStorage.removeItem("pos_payment_verified");
+          }
+        } catch (err) {
+          console.error("Error parsing payment verification", err);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handlePaymentVerified);
+    const timer = setInterval(handlePaymentVerified, 1000);
+
+    return () => {
+      window.removeEventListener("storage", handlePaymentVerified);
+      clearInterval(timer);
+    };
+  }, [paymentStatus, paymentId]);
+
   function holdBill() {
     if (!cart.length) return;
 
@@ -449,12 +574,8 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
     await pageRef.current?.requestFullscreen();
   }
 
-  async function checkout() {
-    if (!cart.length || loading) return;
-    if (paymentMethod === "cash" && cashReceived < payableTotal) {
-      setMessage("รับเงินสดน้อยกว่ายอดสุทธิ");
-      return;
-    }
+  async function recordSale() {
+    if (!cart.length || loading || paymentStatus !== "completed") return;
 
     setLoading(true);
     setMessage("");
@@ -490,6 +611,11 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
       setLoading(false);
       setMessage(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  async function checkout() {
+    // This is now just an alias or can be removed - use recordSale() or processPayment()
+    return;
   }
 
   return (
@@ -532,6 +658,14 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
                   <Boxes size={16} />
                   Reports
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => window.open("/pos/display", "pos-display", "width=600,height=800")}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-slate-300 bg-emerald-50 px-3 font-medium text-emerald-700 hover:bg-emerald-100"
+                >
+                  <QrCode size={16} />
+                  Display
+                </button>
                 <button
                   type="button"
                   onClick={clearBill}
@@ -907,17 +1041,90 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
                   </div>
                 </div>
 
-                {message ? <p className="mt-2 text-sm text-slate-600">{message}</p> : null}
+                {/* Payment Status Display */}
+                {paymentStatus === "completed" ? (
+                  <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                    <div className="flex items-center gap-2 mb-2 text-emerald-800">
+                      <div className="size-2 rounded-full bg-emerald-600 animate-pulse" />
+                      <span className="text-sm font-semibold">ชำระเงินเรียบร้อย</span>
+                    </div>
+                    {qrCode && paymentMethod === "qr" ? (
+                      <div className="mb-2 text-center">
+                        <img src={qrCode} alt="QR" className="mx-auto w-32 h-32" />
+                        <p className="text-xs text-emerald-700 mt-1">สแกน QR PromptPay</p>
+                      </div>
+                    ) : null}
+                    {paymentMethod === "cash" ? (
+                      <div className="bg-white rounded p-2 text-center mb-2">
+                        <p className="text-xs text-slate-600">เงินทอน</p>
+                        <p className="text-lg font-bold text-emerald-700">{money(changeAmount)}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                <button
-                  type="button"
-                  onClick={checkout}
-                  disabled={!cart.length || loading}
-                  className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded bg-slate-950 font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? <Calculator size={18} /> : <Save size={18} />}
-                  {loading ? "กำลังบันทึก..." : "ชำระเงินและบันทึกบิล"}
-                </button>
+                <div className="mt-2 flex flex-col gap-2">
+                  {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+
+                  <div className="flex gap-2">
+                    {paymentStatus === "pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          processPayment().then(() => updateDisplayState());
+                        }}
+                        disabled={!cart.length || loading}
+                        className="ml-auto inline-flex h-12 items-center justify-center gap-2 rounded bg-emerald-700 px-4 font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {loading ? <Calculator size={18} /> : <Banknote size={18} />}
+                        {loading ? "กำลังเตรียม..." : "ชำระเงิน"}
+                      </button>
+                    ) : (
+                      <div className="ml-auto flex gap-2">
+                        {(paymentMethod === "qr" || paymentMethod === "transfer") && paymentId ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setLoading(true);
+                              try {
+                                const res = await fetch("/api/payments/verify-qr", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ payment_id: paymentId }),
+                                });
+                                if (!res.ok) {
+                                  const err = await res.json();
+                                  throw new Error(err.error);
+                                }
+                                setMessage("ยืนยันการชำระเงิน...");
+                                // Auto-record sale after verification
+                                await recordSale();
+                              } catch (err) {
+                                setMessage(err instanceof Error ? err.message : "Verify failed");
+                              } finally {
+                                setLoading(false);
+                              }
+                            }}
+                            disabled={loading}
+                            className="inline-flex h-10 items-center gap-2 rounded border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {loading ? <Calculator size={16} /> : <Check size={16} />}
+                            {loading ? "กำลังโหลด..." : "ยืนยันการชำระ"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={recordSale}
+                          disabled={!cart.length || loading || paymentStatus !== "completed" || ((paymentMethod === "qr" || paymentMethod === "transfer") && !paymentId)}
+                          className="inline-flex h-12 items-center justify-center gap-2 rounded bg-slate-950 px-4 font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {loading ? <Calculator size={18} /> : <Save size={18} />}
+                          {loading ? "กำลังบันทึก..." : "บันทึกบิล"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </aside>
           </div>
