@@ -100,6 +100,29 @@ function productInitials(name: string) {
     .toUpperCase();
 }
 
+function PosClock() {
+  // ponytail: แยกนาฬิกาออกมา — เดิม setState ทุก 1 วิ ทำให้ทั้งหน้า POS (product grid) re-render ทุกวินาที
+  const [currentDateTime, setCurrentDateTime] = useState("");
+
+  useEffect(() => {
+    const updateClock = () => {
+      setCurrentDateTime(
+        new Intl.DateTimeFormat("th-TH", {
+          dateStyle: "full",
+          timeStyle: "medium",
+        }).format(new Date()),
+      );
+    };
+
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return <span>{currentDateTime || "-"}</span>;
+}
+
 export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLElement>(null);
@@ -120,7 +143,6 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
   const [message, setMessage] = useState("");
   const [isOnline, setIsOnline] = useState(true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
-  const [currentDateTime, setCurrentDateTime] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
@@ -147,22 +169,6 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
 
     loadProducts();
     searchRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const updateClock = () => {
-      setCurrentDateTime(
-        new Intl.DateTimeFormat("th-TH", {
-          dateStyle: "full",
-          timeStyle: "medium",
-        }).format(new Date()),
-      );
-    };
-
-    updateClock();
-    const timer = window.setInterval(updateClock, 1000);
-
-    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -503,7 +509,7 @@ export default function PosClient({ currentStaff }: { currentStaff: CurrentStaff
                   <h1 className={`text-lg font-semibold leading-tight ${isFullscreen ? "text-base" : ""}`}>แคชเชียร์ร้านวัสดุก่อสร้าง</h1>
                   <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                     <CalendarClock size={14} />
-                    <span>{currentDateTime || "-"}</span>
+                    <PosClock />
                   </div>
                 </div>
               </div>
