@@ -4,28 +4,19 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   BadgePercent,
-  Banknote,
   Barcode,
   Boxes,
-  Building2,
   ChevronDown,
   ClipboardList,
   FileBarChart,
-  FileText,
   Gift,
   History,
   LayoutDashboard,
-  MonitorPlay,
   Package,
   ReceiptText,
-  ScanLine,
-  Settings2,
   ShoppingCart,
   Store,
-  TabletSmartphone,
-  Truck,
   UserRound,
   UsersRound,
   LogOut,
@@ -53,10 +44,8 @@ const navGroups = [
     items: [
       { href: "/dashboard", label: "แดชบอร์ด", icon: LayoutDashboard },
       { href: "/reports", label: "รายงาน", icon: FileBarChart },
-      { href: "/documents", label: "เอกสาร", icon: FileText },
       { href: "/sales-history", label: "ประวัติขาย", icon: ReceiptText },
       { href: "/product-history", label: "ประวัติสินค้า", icon: History },
-      { href: "/expenses", label: "ค่าใช้จ่าย", icon: Banknote },
     ],
   },
   {
@@ -66,7 +55,6 @@ const navGroups = [
       { href: "/stock", label: "สต๊อก", icon: Boxes },
       { href: "/products", label: "เพิ่มสินค้า", icon: Package },
       { href: "/barcodes", label: "บาร์โค้ด", icon: Barcode },
-      { href: "/expiry", label: "วันหมดอายุ", icon: ScanLine },
     ],
   },
   {
@@ -78,24 +66,10 @@ const navGroups = [
     ],
   },
   {
-    label: "CRM",
-    accent: sidebarAccent,
-    items: [
-      { href: "/customers", label: "ลูกค้า", icon: UserRound },
-      { href: "/points", label: "แลกสะสมแต้ม", icon: Gift },
-      { href: "/points-settings", label: "ตั้งค่าสะสมแต้ม", icon: Settings2 },
-    ],
-  },
-  {
     label: "บริหาร",
     accent: sidebarAccent,
     items: [
-      { href: "/branches", label: "สาขา", icon: Building2 },
       { href: "/employees", label: "พนักงาน", icon: UsersRound },
-      { href: "/suppliers", label: "ผู้ผลิต", icon: Truck },
-      { href: "/pos-devices", label: "เครื่อง POS", icon: TabletSmartphone },
-      { href: "/activities", label: "กิจกรรม", icon: Activity },
-      { href: "/table-monitor", label: "มอนิเตอร์โต๊ะ", icon: MonitorPlay },
       { href: "/devices", label: "อุปกรณ์ที่เข้าสู่ระบบ", icon: Store },
     ],
   },
@@ -264,11 +238,20 @@ export function AppShell({
       const deviceKey = localStorage.getItem("hardware-pos-current-device-id");
       if (!deviceKey) return;
 
+      // ponytail: เช็คซ้ำทุก 5 นาทีพอ (เดิมยิง server ทุกครั้งที่เปลี่ยนหน้า) —
+      // การ block/revoke เครื่องจะมีผลช้าสุด 5 นาที ถ้าต้อง realtime ค่อยเปลี่ยนเป็น supabase realtime
+      const DEVICE_CHECK_TTL_MS = 5 * 60 * 1000;
+      const lastChecked = Number(sessionStorage.getItem("device-access-checked-at") ?? 0);
+      if (Date.now() - lastChecked < DEVICE_CHECK_TTL_MS) return;
+
       let result;
       try {
         result = await checkDeviceAccess(deviceKey);
       } catch {
         return;
+      }
+      if (result.allowed) {
+        sessionStorage.setItem("device-access-checked-at", Date.now().toString());
       }
       if (cancelled || result.allowed) return;
 

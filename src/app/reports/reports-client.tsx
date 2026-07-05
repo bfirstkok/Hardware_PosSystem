@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { AppShell } from "@/components/app-shell";
+import type { CurrentStaff } from "@/lib/staff-session";
 import {
   TrendingUp,
   Award,
@@ -63,7 +64,7 @@ interface StockReport {
   products: StockProduct[];
 }
 
-export default function ReportsClient() {
+export default function ReportsClient({ currentStaff }: { currentStaff?: CurrentStaff | null }) {
   const [activeTab, setActiveTab] = useState<"overview" | "bestsellers" | "stock">("overview");
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [chartData, setChartData] = useState<ChartItem[]>([]);
@@ -186,7 +187,7 @@ export default function ReportsClient() {
   ];
 
   return (
-    <AppShell>
+    <AppShell currentStaff={currentStaff}>
       {/* ฝังโค้ด CSS สำหรับหน้าพิมพ์ PDF เพื่อความเสถียรของ Page Breaks ในทุกๆ บราวเซอร์ */}
       <style dangerouslySetInnerHTML={{__html: `
         @media print {

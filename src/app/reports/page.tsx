@@ -1,14 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireRouteAccess } from "@/lib/staff-session";
 import ReportsClient from "./reports-client";
 
 export default async function ReportsPage() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const staff = await requireRouteAccess("/reports");
 
-  if (!userData.user) {
-    redirect("/login");
-  }
-
-  return <ReportsClient />;
+  return <ReportsClient currentStaff={staff} />;
 }
