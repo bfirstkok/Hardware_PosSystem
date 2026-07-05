@@ -44,11 +44,11 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // ponytail: getClaims ตรวจ JWT ในเครื่อง (ไม่ยิง network ทุก request แบบ getUser)
+  // การยืนยันตัวตนจริงยังทำซ้ำราย page ผ่าน requireRouteAccess + RLS ฝั่ง Supabase
+  const { data } = await supabase.auth.getClaims();
 
-  return user ? response : createLoginRedirect(request);
+  return data?.claims ? response : createLoginRedirect(request);
 }
 
 export const config = {

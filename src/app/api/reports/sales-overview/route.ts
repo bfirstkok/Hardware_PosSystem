@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const startDate = searchParams.get("startDate");
+  // ponytail: บังคับ default 31 วัน กัน query ดึง sales ทั้งตาราง (โตขึ้นเรื่อยๆ = ช้าลงเรื่อยๆ)
+  const startDate =
+    searchParams.get("startDate") ??
+    new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const endDate = searchParams.get("endDate");
 
   const supabase = await createClient();
